@@ -377,15 +377,16 @@ class NetworkManager {
     const mafiaVotes = Object.entries(this.nightActions.mafiaVote);
     
     mafiaVotes.forEach(([mafiaId, targetId]) => {
-        if (!targetId) return;
-        
-        // Prevent duplicate kill messages if multiple mafia target the same person
-        const existing = potentialVictims.get(targetId);
-        if (!existing || !existing.includes("Mafia")) {
-            const reason = "You were killed by the Mafia.";
-            potentialVictims.set(targetId, existing ? `${existing} And ${reason}` : reason);
-        }
-    });
+         if (!targetId) return;
+         
+         // Prevent duplicate kill messages if multiple mafia target the same person
+         const existing = potentialVictims.get(targetId);
+         const mafiaName = store.players[mafiaId]?.name || 'Unknown';
+         if (!existing || !existing.includes("Mafia")) {
+             const reason = `You were killed by the Mafia (${mafiaName}).`;
+             potentialVictims.set(targetId, existing ? `${existing} And ${reason}` : reason);
+         }
+     });
 
       // 2b. Serial Killer Kill
     Object.entries(this.nightActions.serialKillerTargets).forEach(([skId, targetId]) => {
@@ -481,7 +482,8 @@ class NetworkManager {
 
       finalDeaths.forEach((reason, id) => {
           const lastWill = this.lastWills[id];
-          store.updatePlayer(id, { isAlive: false, lastWill });
+          const role = (store.allRoles || {})[id];
+          store.updatePlayer(id, { isAlive: false, lastWill, role });
           const name = store.players[id]?.name || 'Unknown';
           victimNames.push(name);
           
@@ -610,10 +612,13 @@ class NetworkManager {
           const name = store.players[eliminatedId]?.name || 'Unknown';
           const role = (store.allRoles || {})[eliminatedId];
           const lastWill = this.lastWills[eliminatedId];
-          resultText = `The town has decided to eliminate ${name}. They were ${role === 'mafia' ? 'a Member of the Mafia' : role === 'serial_killer' ? 'a Serial Killer' : role === 'jester' ? 'a Jester' : 'an Innocent Civilian'}.`; 
+          resultText = `The town has decided to eliminate ${name}.`; 
           
-          store.updatePlayer(eliminatedId, { isAlive: false, lastWill });
+          store.updatePlayer(eliminatedId, { isAlive: false, lastWill, role });
           this.broadcastPlayerUpdate();
+
+          // Send specific death reason
+          this.sendDeathInfo(eliminatedId, "You were eliminated");
 
           this.broadcastSystemMessage(resultText);
           if (lastWill) {

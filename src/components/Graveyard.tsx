@@ -3,8 +3,10 @@ import { useGameStore } from '../lib/store';
 export default function Graveyard() {
   const players = useGameStore((state) => state.players);
   const allRoles = useGameStore((state) => state.allRoles);
+  const myId = useGameStore((state) => state.myId);
   
   const deadPlayers = Object.values(players).filter(p => !p.isAlive);
+  const amIDead = players[myId] && !players[myId].isAlive;
 
   if (deadPlayers.length === 0) return null;
 
@@ -16,7 +18,8 @@ export default function Graveyard() {
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {deadPlayers.map(player => {
-            const role = allRoles ? allRoles[player.id] : null;
+            // Only show role if I am dead
+            const role = amIDead ? (player.role || (allRoles ? allRoles[player.id] : null)) : null;
             
             return (
                 <div key={player.id} className="bg-slate-950 p-3 rounded-lg border border-slate-800 flex flex-col gap-2 relative overflow-hidden group">

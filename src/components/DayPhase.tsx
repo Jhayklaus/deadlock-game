@@ -3,14 +3,18 @@ import { networkManager } from '../lib/network';
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import ChatBox from './ChatBox';
+import LastWillEditor from './LastWillEditor';
+import Graveyard from './Graveyard';
 
 export default function DayPhase() {
-  const { lastNightResult, players, myId, phase, isAlive } = useGameStore(state => ({
+  const { lastNightResult, players, myId, phase, isAlive, voteCounts, myDeathReason } = useGameStore(state => ({
     lastNightResult: state.lastNightResult,
     players: state.players,
     myId: state.myId,
     phase: state.phase,
-    isAlive: state.players[state.myId]?.isAlive
+    isAlive: state.players[state.myId]?.isAlive,
+    voteCounts: state.voteCounts,
+    myDeathReason: state.myDeathReason
   }));
 
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
@@ -34,13 +38,15 @@ export default function DayPhase() {
   if (!isAlive) {
     return (
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="text-center p-8 bg-slate-800 rounded-xl border border-slate-700">
+        <div className="text-center p-8 bg-slate-900/90 backdrop-blur-md rounded-xl border border-slate-700">
           <h2 className="text-3xl font-bold text-red-500 mb-4">You are Dead 💀</h2>
-          <p className="text-slate-400">You can watch, but you cannot speak or vote.</p>
+          <p className="text-slate-400">You can watch, but you cannot speak to the living.</p>
+          {myDeathReason && <p className="mt-2 text-red-400 font-semibold">{myDeathReason}</p>}
           <p className="mt-4 text-slate-500 italic">"{lastNightResult}"</p>
+          <Graveyard />
         </div>
-        <div className="flex justify-center opacity-50 pointer-events-none">
-          <ChatBox />
+        <div className="flex justify-center">
+          <ChatBox channel="dead" />
         </div>
       </div>
     );
@@ -48,8 +54,9 @@ export default function DayPhase() {
 
   return (
     <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="bg-slate-800 p-8 rounded-xl border border-slate-700 flex flex-col">
-        <h2 className="text-3xl font-bold text-slate-100 mb-2 text-center">Day Phase ☀️</h2>
+      <div className="bg-slate-900/90 backdrop-blur-md p-8 rounded-xl border border-slate-700 flex flex-col">
+        <LastWillEditor />
+        <h2 className="text-3xl font-bold text-slate-100 mb-2 text-center font-creepster tracking-wider">Day Phase ☀️</h2>
         
         {/* Night Result Announcement */}
         <div className="bg-slate-900/50 p-4 rounded-lg text-center mb-8 border border-slate-700">
@@ -81,6 +88,11 @@ export default function DayPhase() {
                   )}
                 >
                   <span className="relative z-10 font-bold">{player.name}</span>
+                  {voteCounts && voteCounts[player.id] && (
+                     <span className="ml-2 bg-slate-900 text-white text-xs px-2 py-0.5 rounded-full">
+                       {voteCounts[player.id]}
+                     </span>
+                  )}
                   {player.id === myId && <span className="text-xs ml-2 opacity-50">(You)</span>}
                 </button>
               ))}
@@ -92,6 +104,11 @@ export default function DayPhase() {
                 className="flex-1 bg-slate-700 text-slate-300 font-bold py-3 rounded-lg hover:bg-slate-600 transition"
               >
                 Skip Vote
+                {voteCounts && voteCounts['SKIP'] && (
+                    <span className="ml-2 bg-slate-900 text-white text-xs px-2 py-0.5 rounded-full">
+                        {voteCounts['SKIP']}
+                    </span>
+                )}
               </button>
               <button
                 onClick={handleVote}
@@ -105,11 +122,39 @@ export default function DayPhase() {
         )}
 
         {phase === 'voting' && hasVoted && (
-           <div className="text-center py-8 flex-1 flex flex-col justify-center">
-              <p className="text-xl text-slate-300">Vote Cast!</p>
-              <p className="text-slate-500 mt-2">Waiting for others...</p>
-           </div>
+            <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500">
+                <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-700 text-center max-w-md w-full">
+                    <h3 className="text-xl font-bold text-slate-300 mb-4">Vote Cast</h3>
+                    <p className="text-slate-400 mb-6">Waiting for others to vote...</p>
+                    
+                    <div className="grid grid-cols-2 gap-3 text-left">
+                        {targets.map(p => {
+                            const count = voteCounts?.[p.id] || 0;
+                            if (count === 0) return null;
+                            return (
+                                <div key={p.id} className="bg-slate-800 p-2 rounded border border-slate-700 flex justify-between">
+                                    <span className="text-slate-300 text-sm truncate">{p.name}</span>
+                                    <span className="bg-amber-500/20 text-amber-500 text-xs font-bold px-2 rounded-full flex items-center">
+                                        {count}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                        {/* Show Skips */}
+                        {voteCounts?.['SKIP'] ? (
+                            <div className="bg-slate-800 p-2 rounded border border-slate-700 flex justify-between">
+                                <span className="text-slate-400 text-sm italic">Skipped</span>
+                                <span className="bg-slate-700 text-slate-300 text-xs font-bold px-2 rounded-full flex items-center">
+                                    {voteCounts['SKIP']}
+                                </span>
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            </div>
         )}
+        
+        <Graveyard />
       </div>
 
       {/* Chat Section */}

@@ -6,14 +6,26 @@ const roleDescriptions: Record<Role, string> = {
   mafia: "Eliminate the civilians. Work with your partners to deceive the Town.",
   detective: "Investigate one player each night to discover their true identity.",
   doctor: "Protect one player each night from elimination.",
-  civilian: "Find and eliminate the Mafia. Trust no one."
+  civilian: "Find and eliminate the Mafia. Trust no one.",
+  vigilante: "Take justice into your own hands. Kill the Mafia, but don't harm the innocent.",
+  mayor: "Your vote counts double. Lead the Town to victory.",
+  serial_killer: "Kill everyone. You must be the last one standing.",
+  jester: "Trick the Town into voting you out to win.",
+  bodyguard: "Protect one player each night. If they are attacked, you die instead.",
+  medium: "Speak with the dead at night to uncover the truth."
 };
 
 const roleColors: Record<Role, string> = {
   mafia: "text-red-500 border-red-500 from-red-900/50 to-red-950/90 shadow-red-900/20",
   detective: "text-blue-400 border-blue-400 from-blue-900/50 to-blue-950/90 shadow-blue-900/20",
   doctor: "text-green-400 border-green-400 from-green-900/50 to-green-950/90 shadow-green-900/20",
-  civilian: "text-slate-200 border-slate-400 from-slate-800 to-slate-900 shadow-slate-900/20"
+  civilian: "text-slate-200 border-slate-400 from-slate-800 to-slate-900 shadow-slate-900/20",
+  vigilante: "text-amber-500 border-amber-500 from-amber-900/50 to-amber-950/90 shadow-amber-900/20",
+  mayor: "text-purple-400 border-purple-400 from-purple-900/50 to-purple-950/90 shadow-purple-900/20",
+  serial_killer: "text-orange-600 border-orange-600 from-orange-900/50 to-orange-950/90 shadow-orange-900/20",
+  jester: "text-pink-400 border-pink-400 from-pink-900/50 to-pink-950/90 shadow-pink-900/20",
+  bodyguard: "text-teal-400 border-teal-400 from-teal-900/50 to-teal-950/90 shadow-teal-900/20",
+  medium: "text-indigo-400 border-indigo-400 from-indigo-900/50 to-indigo-950/90 shadow-indigo-900/20"
 };
 
 const RoleIcon = ({ role }: { role: Role }) => {
@@ -39,6 +51,42 @@ const RoleIcon = ({ role }: { role: Role }) => {
       return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-32 h-32 mx-auto drop-shadow-[0_0_15px_rgba(74,222,128,0.5)]">
           <path fillRule="evenodd" d="M11.484 2.17a.75.75 0 0 1 1.032 0 11.209 11.209 0 0 0 7.877 3.08.75.75 0 0 1 .722.515 12.74 12.74 0 0 1 .635 3.985c0 5.942-4.064 10.933-9.563 12.348a.749.749 0 0 1-.374 0C6.314 20.683 2.25 15.692 2.25 9.75c0-1.39.223-2.73.635-3.985a.75.75 0 0 1 .722-.516 11.208 11.208 0 0 0 7.877-3.08ZM12 6.75a.75.75 0 0 1 .75.75v2.25h2.25a.75.75 0 0 1 0 1.5h-2.25v2.25a.75.75 0 0 1-1.5 0v-2.25H9a.75.75 0 0 1 0-1.5h2.25V7.5a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />
+        </svg>
+      );
+    case 'vigilante':
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-32 h-32 mx-auto drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+          <path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.006z" clipRule="evenodd" />
+        </svg>
+      );
+    case 'mayor':
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-32 h-32 mx-auto drop-shadow-[0_0_15px_rgba(192,132,252,0.5)]">
+          <path fillRule="evenodd" d="M11.54 22.351l.07.04.028.016a.76.76 0 00.723 0l.028-.015.071-.041a16.975 16.975 0 001.144-.742 19.58 19.58 0 002.683-2.282c1.944-1.99 3.963-4.98 3.963-8.827a8.25 8.25 0 00-16.5 0c0 3.846 2.02 6.837 3.963 8.827a19.58 19.58 0 002.682 2.282 16.975 16.975 0 001.145.742zM12 13.5a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+        </svg>
+      );
+    case 'serial_killer':
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-32 h-32 mx-auto drop-shadow-[0_0_15px_rgba(234,88,12,0.5)]">
+          <path fillRule="evenodd" d="M8.25 6.75a3.75 3.75 0 1 1 7.5 0 3.75 3.75 0 0 1-7.5 0ZM15.75 9.75a3 3 0 1 1 6 0 3 3 0 0 1-6 0ZM2.25 9.75a3 3 0 1 1 6 0 3 3 0 0 1-6 0ZM6.31 15.117A6.745 6.745 0 0 1 12 12a6.745 6.745 0 0 1 6.709 7.498.75.75 0 0 1-.372.568l-2.614 1.566a6.743 6.743 0 0 1-7.446 0L5.663 20.066a.75.75 0 0 1-.372-.568A6.746 6.746 0 0 1 6.31 15.117Z" clipRule="evenodd" />
+        </svg>
+      );
+    case 'jester':
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-32 h-32 mx-auto drop-shadow-[0_0_15px_rgba(236,72,153,0.5)]">
+           <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm-1.72 6.97a.75.75 0 1 0-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 1 0 1.06 1.06L12 13.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L13.06 12l1.72-1.72a.75.75 0 1 0-1.06-1.06L12 10.94l-1.72-1.72Z" clipRule="evenodd" />
+        </svg>
+      );
+    case 'bodyguard':
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-32 h-32 mx-auto drop-shadow-[0_0_15px_rgba(45,212,191,0.5)]">
+          <path fillRule="evenodd" d="M12.516 2.17a.75.75 0 0 0-1.032 0 11.209 11.209 0 0 1-7.877 3.08.75.75 0 0 0-.722.515A12.74 12.74 0 0 0 2.25 9.75c0 5.942 4.064 10.933 9.563 12.348a.749.749 0 0 0 .374 0c5.499-1.415 9.563-6.406 9.563-12.348 0-1.39-.223-2.73-.635-3.985a.75.75 0 0 0-.722-.516 11.208 11.208 0 0 1-7.877-3.08ZM12 6.75a.75.75 0 0 1 .75.75v3.94l2.427 1.4a.75.75 0 1 1-.75 1.3l-2.8-1.618a.75.75 0 0 1-.377-.648V7.5a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />
+        </svg>
+      );
+    case 'medium':
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-32 h-32 mx-auto drop-shadow-[0_0_15px_rgba(129,140,248,0.5)]">
+           <path fillRule="evenodd" d="M8.25 3a.75.75 0 0 1 .75.75v3.75a.75.75 0 0 1-1.5 0V3.75A.75.75 0 0 1 8.25 3Zm7.5 0a.75.75 0 0 1 .75.75v3.75a.75.75 0 0 1-1.5 0V3.75A.75.75 0 0 1 15.75 3ZM12 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75ZM6 10.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75ZM18 10.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75ZM3 15a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 3 15Zm18 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75ZM12 15a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 12 15Z" clipRule="evenodd" />
         </svg>
       );
     default:

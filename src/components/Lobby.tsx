@@ -42,9 +42,9 @@ export default function Lobby() {
 
   if (isJoined) {
     return (
-      <div className="w-full max-w-md bg-slate-800 p-6 rounded-xl shadow-xl border border-slate-700">
+      <div className="w-full max-w-md bg-slate-900/90 backdrop-blur-md p-6 rounded-xl shadow-xl border border-slate-700">
         <div className="text-center mb-6">
-          <h2 className="text-2xl font-bold text-red-500 mb-2">Lobby</h2>
+          <h2 className="text-2xl font-bold text-red-500 mb-2 font-creepster tracking-wider">Lobby</h2>
           {isHost && (
             <div className="bg-slate-900 p-3 rounded-lg border border-slate-700">
               <p className="text-xs text-slate-400 mb-1">Share this ID with friends:</p>

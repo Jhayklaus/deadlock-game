@@ -55,8 +55,8 @@ export function getBotDayVote(
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
   if (alivePlayers.length === 0) return null;
   
-  // 10% chance to skip vote
-  if (Math.random() < 0.1) return null;
+  // 15% chance to skip vote
+  if (Math.random() < 0.15) return null;
 
   return alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
 }

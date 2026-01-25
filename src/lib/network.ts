@@ -46,8 +46,18 @@ class NetworkManager {
 
     // Use a short ID for easier sharing, or restore existing ID
     const peerId = existingId || generateShortId();
+    
+    // PeerJS configuration for better stability
     this.peer = new Peer(peerId, {
       debug: 2,
+      secure: true,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+      },
     });
 
     this.peer.on('open', (id) => {

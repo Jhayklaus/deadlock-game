@@ -1,5 +1,6 @@
 import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
+import ChatBox from './ChatBox';
 import { clsx } from 'clsx';
 
 export default function GameOver() {
@@ -13,17 +14,25 @@ export default function GameOver() {
 
   if (!winner || !allRoles) return null;
 
-  const isWinner = (winner === 'town' && allRoles[myId] !== 'mafia') ||
-                   (winner === 'mafia' && allRoles[myId] === 'mafia');
+  const isWinner = (winner === 'town' && allRoles[myId] !== 'mafia' && allRoles[myId] !== 'serial_killer' && allRoles[myId] !== 'jester') ||
+                   (winner === 'mafia' && allRoles[myId] === 'mafia') ||
+                   (winner === 'serial_killer' && allRoles[myId] === 'serial_killer') ||
+                   (winner === 'jester' && allRoles[myId] === 'jester');
                    
   const isHost = myId === hostId;
 
   return (
     <div className="w-full max-w-2xl bg-slate-800 p-8 rounded-xl border border-slate-700 text-center animate-in zoom-in duration-500">
       <h2 className={clsx("text-5xl font-black mb-4 uppercase drop-shadow-lg", 
-        winner === 'mafia' ? "text-red-500" : "text-blue-400"
+        winner === 'mafia' ? "text-red-500" : 
+        winner === 'serial_killer' ? "text-orange-600" :
+        winner === 'jester' ? "text-pink-500" :
+        "text-blue-400"
       )}>
-        {winner === 'mafia' ? "Mafia Wins!" : "Town Wins!"}
+        {winner === 'mafia' ? "Mafia Wins!" : 
+         winner === 'serial_killer' ? "Serial Killer Wins!" :
+         winner === 'jester' ? "Jester Wins!" :
+         "Town Wins!"}
       </h2>
       
       <p className={clsx("text-2xl font-bold mb-8", isWinner ? "text-amber-400" : "text-slate-400")}>
@@ -40,12 +49,21 @@ export default function GameOver() {
               allRoles[p.id] === 'mafia' ? "bg-red-500/20 text-red-400" : 
               allRoles[p.id] === 'doctor' ? "bg-green-500/20 text-green-400" :
               allRoles[p.id] === 'detective' ? "bg-blue-500/20 text-blue-400" :
+              allRoles[p.id] === 'vigilante' ? "bg-amber-500/20 text-amber-500" :
+              allRoles[p.id] === 'mayor' ? "bg-purple-500/20 text-purple-400" :
+              allRoles[p.id] === 'serial_killer' ? "bg-orange-500/20 text-orange-600" :
+              allRoles[p.id] === 'jester' ? "bg-pink-500/20 text-pink-400" :
               "bg-slate-500/20 text-slate-400"
             )}>
               {allRoles[p.id]}
             </span>
           </div>
         ))}
+      </div>
+
+      <div className="mt-8">
+        <h3 className="text-xl font-bold text-slate-300 mb-4">Post-Game Chat</h3>
+        <ChatBox className="w-full max-w-full h-80 mx-auto" />
       </div>
 
       <div className="mt-8 pt-8 border-t border-slate-700">

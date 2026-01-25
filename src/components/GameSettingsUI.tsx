@@ -19,6 +19,10 @@ export default function GameSettingsUI() {
           <div>Mafia: {settings.roles.mafia.count}</div>
           <div>Detective: {settings.roles.detective.count}</div>
           <div>Doctor: {settings.roles.doctor.count}</div>
+          <div>Vigilante: {settings.roles.vigilante.count}</div>
+          <div>Mayor: {settings.roles.mayor.count}</div>
+          <div>SK: {settings.roles.serial_killer.count}</div>
+          <div>Jester: {settings.roles.jester.count}</div>
         </div>
       </div>
     );
@@ -96,7 +100,7 @@ export default function GameSettingsUI() {
         <div className="space-y-4">
           <h4 className="font-semibold text-slate-300 border-b border-slate-700 pb-2">Roles</h4>
           
-          {(['mafia', 'detective', 'doctor'] as const).map((role) => (
+          {(['mafia', 'detective', 'doctor', 'vigilante', 'mayor', 'serial_killer', 'jester', 'bodyguard', 'medium'] as const).map((role) => (
             <div key={role} className="bg-slate-900/50 p-3 rounded border border-slate-700/50">
               <div className="flex justify-between items-center mb-2">
                 <span className="capitalize font-medium text-slate-200">{role}</span>

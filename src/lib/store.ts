@@ -14,13 +14,15 @@ interface GameActions {
   setMyRole: (role: Role, mafiaPartners?: PlayerId[]) => void;
   setAllRoles: (roles: Record<PlayerId, Role>) => void;
   setLastNightResult: (result: string) => void;
-  setGameOver: (winner: 'town' | 'mafia', allRoles: Record<PlayerId, Role>) => void;
+  setVoteCounts: (counts: Record<PlayerId, number>) => void;
+  setGameOver: (winner: 'town' | 'mafia' | 'serial_killer' | 'jester', allRoles: Record<PlayerId, Role>) => void;
   resetGame: () => void;
   resetSession: () => void;
   resetToLobby: () => void;
   setSettings: (settings: GameSettings) => void;
   addMessage: (message: ChatMessage) => void;
   setTimerEnd: (timestamp: number | null) => void;
+  setMyDeathReason: (reason: string | null) => void;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -32,6 +34,12 @@ const DEFAULT_SETTINGS: GameSettings = {
     mafia: { count: 1, chance: 100 },
     detective: { count: 1, chance: 100 },
     doctor: { count: 1, chance: 100 },
+    vigilante: { count: 1, chance: 50 },
+    mayor: { count: 1, chance: 50 },
+    serial_killer: { count: 1, chance: 30 },
+    jester: { count: 1, chance: 30 },
+    bodyguard: { count: 1, chance: 50 },
+    medium: { count: 1, chance: 50 },
   }
 };
 
@@ -44,11 +52,13 @@ const initialState: GameState = {
   myRole: null,
   mafiaPartners: [],
   lastNightResult: '',
+  voteCounts: {},
   winner: null,
   allRoles: null,
   settings: DEFAULT_SETTINGS,
   messages: [],
   timerEnd: null,
+  myDeathReason: null,
 };
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -89,28 +99,42 @@ export const useGameStore = create<GameState & GameActions>()(
       setAllRoles: (allRoles) => set({ allRoles }),
 
       setLastNightResult: (result) => set({ lastNightResult: result }),
+      setVoteCounts: (voteCounts) => set({ voteCounts }),
+      setMyDeathReason: (reason) => set({ myDeathReason: reason }),
       
       setGameOver: (winner, allRoles) => set({ winner, allRoles, phase: 'game_over' }),
 
       resetGame: () => set(initialState),
 
-      resetSession: () => set((state) => ({
+      resetSession: () => {
+        localStorage.removeItem('tno-game-storage');
+        set((state) => ({
         ...initialState,
         myId: state.myId,
         settings: state.settings
-      })),
+      }))
+      },
 
-      resetToLobby: () => set(() => ({
-        phase: 'lobby',
-        myRole: null,
-        mafiaPartners: [],
-        lastNightResult: '',
-        winner: null,
-        allRoles: null,
-        messages: [],
-        timerEnd: null,
-        error: null
-      })),
+      resetToLobby: () => set((state) => {
+        const resetPlayers = Object.entries(state.players).reduce((acc, [id, player]) => ({
+          ...acc,
+          [id]: { ...player, isAlive: true }
+        }), {} as Record<PlayerId, Player>);
+
+        return {
+          phase: 'lobby',
+          players: resetPlayers,
+          myRole: null,
+          mafiaPartners: [],
+          lastNightResult: '',
+          voteCounts: {},
+          winner: null,
+          allRoles: null,
+          messages: [],
+          timerEnd: null,
+          error: null
+        };
+      }),
 
       setSettings: (settings) => set({ settings }),
       addMessage: (message) => set((state) => {

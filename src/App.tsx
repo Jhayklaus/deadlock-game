@@ -7,6 +7,7 @@ import NightPhase from './components/NightPhase';
 import DayPhase from './components/DayPhase';
 import GameOver from './components/GameOver';
 import Timer from './components/Timer';
+import CheatSheet from './components/CheatSheet';
 
 function App() {
   const { phase, error, myId, hostId, players } = useGameStore(state => ({
@@ -70,6 +71,7 @@ function App() {
         <p className="text-slate-500 font-medium tracking-[0.2em] text-sm md:text-base uppercase border-t border-b border-slate-800 py-2 inline-block px-8">
           Trust No One • Survive The Night
         </p>
+        <CheatSheet />
       </header>
 
       {error && (

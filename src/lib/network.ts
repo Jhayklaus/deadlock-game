@@ -19,10 +19,23 @@ class NetworkManager {
     mafiaVote: Record<PlayerId, PlayerId>; // voterId -> targetId
     doctorTargets: Record<PlayerId, PlayerId>; // doctorId -> targetId
     detectiveTargets: Record<PlayerId, PlayerId>; // detectiveId -> targetId
-  } = { mafiaVote: {}, doctorTargets: {}, detectiveTargets: {} };
+    vigilanteTargets: Record<PlayerId, PlayerId>; // vigilanteId -> targetId
+    serialKillerTargets: Record<PlayerId, PlayerId>; // skId -> targetId
+    bodyguardTargets: Record<PlayerId, PlayerId>;
+  } = { 
+    mafiaVote: {}, 
+    doctorTargets: {}, 
+    detectiveTargets: {}, 
+    vigilanteTargets: {}, 
+    serialKillerTargets: {},
+    bodyguardTargets: {}
+  };
 
   // Host state for day votes
   private dayVotes: Record<PlayerId, PlayerId | null> = {};
+
+  // Host state for Last Wills
+  private lastWills: Record<PlayerId, string> = {};
 
   // Initialize Peer
   initialize(existingId?: string, onOpen?: (id: string) => void) {
@@ -61,6 +74,16 @@ class NetworkManager {
       this.handleIncomingConnection(conn);
     });
 
+    this.peer.on('disconnected', () => {
+      console.log('Connection to signaling server lost. Reconnecting...');
+      // Workaround for PeerJS issue where reconnect doesn't work immediately
+      setTimeout(() => {
+          if (this.peer && !this.peer.destroyed) {
+            this.peer.reconnect();
+          }
+      }, 1000);
+    });
+
     this.peer.on('error', (err) => {
       console.error('Peer error:', err);
 
@@ -70,6 +93,13 @@ class NetworkManager {
           console.log('ID unavailable, generating new ID...');
           this.initialize(undefined, onOpen); // Retry with new ID
           return;
+      }
+
+      // Handle network errors (suppress UI error for transient issues)
+      // @ts-ignore
+      if (err.type === 'network' || err.type === 'peer-unavailable' || err.type === 'server-error' || err.type === 'socket-error' || err.type === 'socket-closed') {
+           console.warn(`PeerJS Network Error (${err.type}):`, err.message);
+           return; 
       }
 
       useGameStore.getState().setError(err.message);
@@ -190,24 +220,27 @@ class NetworkManager {
   private checkWinCondition(): boolean {
     const store = useGameStore.getState();
     const alivePlayers = Object.values(store.players).filter(p => p.isAlive);
+    const totalAlive = alivePlayers.length;
     
     let mafiaCount = 0;
-    let townCount = 0;
+    let skCount = 0;
 
     alivePlayers.forEach(p => {
       const role = (store.allRoles || {})[p.id];
       if (role === 'mafia') {
         mafiaCount++;
-      } else {
-        townCount++;
+      } else if (role === 'serial_killer') {
+        skCount++;
       }
     });
 
-    let winner: 'town' | 'mafia' | null = null;
+    let winner: 'town' | 'mafia' | 'serial_killer' | null = null;
 
-    if (mafiaCount === 0) {
+    if (mafiaCount === 0 && skCount === 0) {
       winner = 'town';
-    } else if (mafiaCount >= townCount) {
+    } else if (skCount > 0 && (totalAlive - skCount) <= 1) {
+      winner = 'serial_killer';
+    } else if (mafiaCount >= (totalAlive - mafiaCount)) {
       winner = 'mafia';
     }
 
@@ -232,7 +265,14 @@ class NetworkManager {
     const store = useGameStore.getState();
     
     // Reset night actions
-    this.nightActions = { mafiaVote: {}, doctorTargets: {}, detectiveTargets: {} };
+    this.nightActions = { 
+      mafiaVote: {}, 
+      doctorTargets: {}, 
+      detectiveTargets: {}, 
+      vigilanteTargets: {}, 
+      serialKillerTargets: {},
+      bodyguardTargets: {}
+    };
 
     const duration = store.settings.nightDuration * 1000;
     const timerEnd = Date.now() + duration;
@@ -269,48 +309,73 @@ class NetworkManager {
     });
   }
 
+  sendPrivateSystemMessage(targetId: string, content: string) {
+    const store = useGameStore.getState();
+    const msg: NetworkMessage = {
+      type: 'CHAT_MESSAGE',
+      senderId: 'SYSTEM',
+      payload: {
+        id: Math.random().toString(36).substring(2, 10),
+        senderId: 'SYSTEM',
+        senderName: 'System',
+        content,
+        timestamp: Date.now(),
+        isSystem: true,
+        channel: 'global',
+        recipientId: targetId
+      }
+    };
+
+    if (targetId === store.myId) {
+      store.addMessage(msg.payload);
+    } else {
+      const conn = this.connections.get(targetId);
+      if (conn) {
+        this.sendMessage(conn, msg);
+      }
+    }
+  }
+
+  sendDeathInfo(targetId: string, reason: string) {
+    const store = useGameStore.getState();
+    const msg: NetworkMessage = {
+        type: 'DEATH_INFO',
+        senderId: store.myId,
+        payload: { reason }
+    };
+    
+    if (targetId === store.myId) {
+        store.setMyDeathReason(reason);
+    } else {
+        const conn = this.connections.get(targetId);
+        if (conn) this.sendMessage(conn, msg);
+    }
+  }
+
   private resolveNightPhase() {
     const store = useGameStore.getState();
     
     // 1. Resolve Investigations (Detective)
     Object.entries(this.nightActions.detectiveTargets).forEach(([detectiveId, targetId]) => {
       const targetRole = (store.allRoles || {})[targetId];
-      // Only reveal if Mafia or not (Classic rules: "Mafia" or "Not Mafia")
-      // Or exact role? Let's stick to simple "is Mafia" or "is not Mafia" or exact role.
-      // MVP: Reveal exact role.
       const result = targetRole; 
       
       const targetName = store.players[targetId]?.name || 'Unknown';
       const message = `Investigation Result: ${targetName} is ${result}.`;
       
-      // Send private message to detective
-      const chatMsg: NetworkMessage = {
-        type: 'CHAT_MESSAGE',
-        senderId: 'SYSTEM',
-        payload: {
-          id: Math.random().toString(36).substring(2, 10),
-          senderId: 'SYSTEM',
-          senderName: 'System',
-          content: message,
-          timestamp: Date.now(),
-          isSystem: true
-        }
-      };
-      
-      if (detectiveId === store.myId) {
-        store.addMessage(chatMsg.payload);
-      } else {
-        const conn = this.connections.get(detectiveId);
-        if (conn) this.sendMessage(conn, chatMsg);
-      }
+      this.sendPrivateSystemMessage(detectiveId, message);
     });
 
-    // 2. Calculate Mafia Kill
+    // 2. Collect Potential Deaths & Reasons
+    // Map<VictimId, Reason>
+    const potentialVictims = new Map<string, string>();
+    const vigilanteSuicides = new Map<string, string>();
+
+    // 2a. Mafia Kill
     const votes = Object.values(this.nightActions.mafiaVote);
-    let victimId: string | null = null;
+    let mafiaTargetId: string | null = null;
     
     if (votes.length > 0) {
-       // Find most voted
        const voteCounts: Record<string, number> = {};
        votes.forEach(v => voteCounts[v] = (voteCounts[v] || 0) + 1);
        
@@ -320,27 +385,125 @@ class NetworkManager {
        });
        
        const candidates = Object.keys(voteCounts).filter(id => voteCounts[id] === maxVotes);
-       // Randomly pick one from the candidates with max votes
-       victimId = candidates[Math.floor(Math.random() * candidates.length)];
+       mafiaTargetId = candidates[Math.floor(Math.random() * candidates.length)];
+       if (mafiaTargetId) {
+           potentialVictims.set(mafiaTargetId, "You were killed by the Mafia.");
+       }
     }
 
-    // 3. Doctor Save
-    if (victimId) {
-      const protectedIds = Object.values(this.nightActions.doctorTargets);
-      if (protectedIds.includes(victimId)) {
-        victimId = null; // Saved!
-      }
-    }
+      // 2b. Serial Killer Kill
+    Object.entries(this.nightActions.serialKillerTargets).forEach(([skId, targetId]) => {
+        if (targetId) {
+            const skName = store.players[skId]?.name || 'Unknown';
+            // Append reason if already targeted
+            const existing = potentialVictims.get(targetId);
+            const reason = `You were killed by ${skName} (Serial Killer).`;
+            potentialVictims.set(targetId, existing ? `${existing} And ${reason}` : reason);
+        }
+    });
+
+    // 2c. Vigilante Kill
+    Object.entries(this.nightActions.vigilanteTargets).forEach(([vigId, targetId]) => {
+        if (!targetId) return;
+        
+        const targetRole = (store.allRoles || {})[targetId];
+        // Vigilante dies if they shoot a Town member
+        const isTown = ['detective', 'doctor', 'civilian', 'mayor', 'vigilante'].includes(targetRole);
+        
+        if (isTown) {
+            vigilanteSuicides.set(vigId, "You died from guilt after killing an innocent town member.");
+        } else {
+            const vigName = store.players[vigId]?.name || 'Unknown';
+            const existing = potentialVictims.get(targetId);
+            const reason = `You were killed by ${vigName} (Vigilante).`;
+            potentialVictims.set(targetId, existing ? `${existing} And ${reason}` : reason);
+        }
+    });
+
+    // 3. Protection Logic (Doctor & Bodyguard)
+    const doctorProtectedIds = new Set(Object.values(this.nightActions.doctorTargets));
+    const bodyguardProtections = Object.entries(this.nightActions.bodyguardTargets); // [bgId, targetId]
+
+    const finalDeaths = new Map<string, string>(); // VictimId -> Reason
+    const deadBodyguards = new Map<string, string>();
+
+    potentialVictims.forEach((reason, victimId) => {
+        let isSaved = false;
+
+        // Doctor Save
+        if (doctorProtectedIds.has(victimId)) {
+            isSaved = true;
+            // Find who saved
+            const doctorId = Object.keys(this.nightActions.doctorTargets).find(id => this.nightActions.doctorTargets[id] === victimId);
+            if (doctorId) {
+                const docName = store.players[doctorId]?.name || 'Unknown';
+                this.sendPrivateSystemMessage(victimId, `Doctor(${docName}) saved you last night.`);
+            }
+        }
+
+        // Bodyguard Save
+        // If saved by BG, BG dies instead
+        if (!isSaved) {
+            const bgEntry = bodyguardProtections.find(([_, targetId]) => targetId === victimId);
+            if (bgEntry) {
+                const [bgId] = bgEntry;
+                // Target is saved, Bodyguard dies
+                // Unless Doctor also protected the Bodyguard!
+                if (doctorProtectedIds.has(bgId)) {
+                    // BG saved by Doc, Target saved by BG
+                    // Everyone lives! (Powerful combo)
+                    const doctorId = Object.keys(this.nightActions.doctorTargets).find(id => this.nightActions.doctorTargets[id] === bgId);
+                    if (doctorId) {
+                        const docName = store.players[doctorId]?.name || 'Unknown';
+                        this.sendPrivateSystemMessage(bgId, `Doctor(${docName}) saved you last night.`);
+                    }
+                } else {
+                    const bgName = store.players[bgId]?.name || 'Unknown';
+                    deadBodyguards.set(bgId, `You died protecting ${store.players[victimId]?.name || 'someone'}.`);
+                    this.sendPrivateSystemMessage(victimId, `Bodyguard(${bgName}) saved you last night.`);
+                }
+                isSaved = true;
+            }
+        }
+
+        if (!isSaved) {
+            finalDeaths.set(victimId, reason);
+        }
+    });
+
+    // Add dead bodyguards to final deaths
+    deadBodyguards.forEach((reason, id) => finalDeaths.set(id, reason));
+
+    // Vigilante suicides bypass doctor/BG protection (Guilt)
+    vigilanteSuicides.forEach((reason, id) => finalDeaths.set(id, reason));
 
     // 4. Apply Death
     let resultText = "The night was peaceful.";
-    if (victimId) {
-      const victimName = store.players[victimId]?.name || 'Unknown';
-      resultText = `${victimName} was found dead.`;
-      
-      store.updatePlayer(victimId, { isAlive: false });
-      // Broadcast player update
+    if (finalDeaths.size > 0) {
+      const victimNames: string[] = [];
+      const lastWillsToBroadcast: string[] = [];
+
+      finalDeaths.forEach((reason, id) => {
+          const lastWill = this.lastWills[id];
+          store.updatePlayer(id, { isAlive: false, lastWill });
+          const name = store.players[id]?.name || 'Unknown';
+          victimNames.push(name);
+          
+          // Send Private Death Info
+          this.sendDeathInfo(id, reason);
+
+          if (lastWill) {
+              lastWillsToBroadcast.push(`📜 Last Will of ${name}: "${lastWill}"`);
+          }
+      });
       this.broadcastPlayerUpdate();
+      
+      resultText = `${victimNames.join(', ')} ${victimNames.length > 1 ? 'were' : 'was'} found dead.`;
+      
+      // Broadcast Last Wills
+      lastWillsToBroadcast.forEach(msg => {
+          this.broadcastSystemMessage(msg);
+      });
     }
 
     if (this.checkWinCondition()) return;
@@ -384,6 +547,7 @@ class NetworkManager {
       };
       this.broadcast(phaseMsg);
       store.setPhase('voting');
+      store.setVoteCounts({}); // Reset host vote counts
       store.setTimerEnd(timerEnd);
 
       // End voting after duration
@@ -406,50 +570,82 @@ class NetworkManager {
 
   private resolveVotingPhase() {
       const store = useGameStore.getState();
-      
-      // Tally votes
+      const allRoles = store.allRoles || {};
+      const livingPlayers = Object.values(store.players).filter(p => p.isAlive);
+
+      // Tally votes with weighted logic
       const voteCounts: Record<string, number> = {};
-      Object.values(this.dayVotes).forEach(targetId => {
-          if (targetId) {
-              voteCounts[targetId] = (voteCounts[targetId] || 0) + 1;
+      
+      livingPlayers.forEach(player => {
+          const voterId = player.id;
+          let targetId = this.dayVotes[voterId]; // undefined if abstain, null if explicit skip
+          
+          // Treat abstain (undefined) and explicit skip (null) as 'SKIP'
+          if (targetId === undefined || targetId === null) {
+              targetId = 'SKIP';
+          }
+
+          const voterRole = allRoles[voterId];
+          const weight = voterRole === 'mayor' ? 2 : 1;
+          
+          voteCounts[targetId] = (voteCounts[targetId] || 0) + weight;
+      });
+
+      // Find the option with the highest votes (Plurality)
+      let maxVotes = 0;
+      let winners: string[] = [];
+
+      Object.entries(voteCounts).forEach(([target, count]) => {
+          if (count > maxVotes) {
+              maxVotes = count;
+              winners = [target];
+          } else if (count === maxVotes) {
+              winners.push(target);
           }
       });
 
-      // Find majority
-      // MVP: Strict majority (> half of living players)
-      const livingCount = Object.values(store.players).filter(p => p.isAlive).length;
       let eliminatedId: string | null = null;
-      
-      for (const [targetId, count] of Object.entries(voteCounts)) {
-          if (count > livingCount / 2) {
-              eliminatedId = targetId;
-              break;
-          }
-      }
+      let resultText = "No one was voted out.";
 
-      // let resultText = "No one was voted out.";
-      if (eliminatedId) {
+      // Eliminate only if there is a single winner and it's not SKIP
+      if (winners.length === 1 && winners[0] !== 'SKIP') {
+          eliminatedId = winners[0];
+          
           const name = store.players[eliminatedId]?.name || 'Unknown';
           const role = (store.allRoles || {})[eliminatedId];
-          const resultText = `The town has decided to eliminate ${name}. They were ${role === 'mafia' ? 'a Member of the Mafia' : 'an Innocent Civilian'}.`; // Or specific role
+          const lastWill = this.lastWills[eliminatedId];
+          resultText = `The town has decided to eliminate ${name}. They were ${role === 'mafia' ? 'a Member of the Mafia' : role === 'serial_killer' ? 'a Serial Killer' : role === 'jester' ? 'a Jester' : 'an Innocent Civilian'}.`; 
           
-          store.updatePlayer(eliminatedId, { isAlive: false });
+          store.updatePlayer(eliminatedId, { isAlive: false, lastWill });
           this.broadcastPlayerUpdate();
 
-          // Send result immediately via PHASE_CHANGE or a separate message?
-          // Currently resolveVotingPhase loops back to night with checkWinCondition.
-          // But wait, where is resultText used?
-          // It seems it's NOT used in the current implementation of resolveVotingPhase!
-          // Ah, looking at startNightPhase -> PHASE_CHANGE payload.
-          
-          // We need to broadcast this result. 
-          // The current implementation loops back to startNightPhase in 5 seconds.
-          // But the result is not shown!
-          
-          // Let's send a System Chat Message for the result!
           this.broadcastSystemMessage(resultText);
+          if (lastWill) {
+            this.broadcastSystemMessage(`📜 Last Will of ${name}: "${lastWill}"`);
+          }
+
+          // Check Jester Win
+          if (role === 'jester') {
+              const msg: NetworkMessage = {
+                  type: 'GAME_OVER',
+                  senderId: store.myId,
+                  payload: {
+                      winner: 'jester',
+                      roles: store.allRoles || {}
+                  }
+              };
+              this.broadcast(msg);
+              store.setGameOver('jester', store.allRoles || {});
+              return;
+          }
       } else {
-          this.broadcastSystemMessage("No one was voted out.");
+          // Tie or Skip wins
+          if (winners.includes('SKIP') && winners.length === 1) {
+              resultText = "The town decided to skip voting.";
+          } else {
+              resultText = "The vote ended in a tie or skip majority. No one was voted out.";
+          }
+          this.broadcastSystemMessage(resultText);
       }
 
       if (this.checkWinCondition()) return;
@@ -463,7 +659,22 @@ class NetworkManager {
       }, 5000); // Show result for 5s then night
   }
 
-  sendNightAction(action: 'KILL' | 'SAVE' | 'INVESTIGATE', targetId: PlayerId) {
+  sendLastWillUpdate(content: string) {
+    const store = useGameStore.getState();
+    const msg: NetworkMessage = {
+      type: 'UPDATE_LAST_WILL',
+      senderId: store.myId,
+      payload: { content }
+    };
+
+    if (store.myId === store.hostId) {
+        this.lastWills[store.myId] = content;
+    } else if (this.hostConnection) {
+        this.sendMessage(this.hostConnection, msg);
+    }
+  }
+
+  sendNightAction(action: 'KILL' | 'SAVE' | 'INVESTIGATE' | 'PROTECT', targetId: PlayerId) {
     const store = useGameStore.getState();
     const msg: NetworkMessage = {
       type: 'NIGHT_ACTION',
@@ -488,10 +699,38 @@ class NetworkManager {
       };
 
       if (store.myId === store.hostId) {
-          this.dayVotes[store.myId] = targetId;
+          this.processVote(store.myId, targetId);
       } else if (this.hostConnection) {
           this.sendMessage(this.hostConnection, msg);
       }
+  }
+
+  private processVote(voterId: string, targetId: string | null) {
+      const store = useGameStore.getState();
+      this.dayVotes[voterId] = targetId;
+      
+      // Broadcast vote update
+      const voteCounts: Record<string, number> = {};
+      Object.values(this.dayVotes).forEach(tid => {
+        if (tid) {
+          voteCounts[tid] = (voteCounts[tid] || 0) + 1;
+        } else {
+            // Count skips
+            voteCounts['SKIP'] = (voteCounts['SKIP'] || 0) + 1;
+        }
+      });
+
+      const updateMsg: NetworkMessage = {
+        type: 'VOTE_UPDATE',
+        senderId: store.myId,
+        payload: { voteCounts }
+      };
+      this.broadcast(updateMsg);
+      store.setVoteCounts(voteCounts);
+
+      // Broadcast who voted
+      const voterName = store.players[voterId]?.name || 'Unknown';
+      this.broadcastSystemMessage(`${voterName} has voted.`);
   }
 
   // Join a game
@@ -521,7 +760,9 @@ class NetworkManager {
 
     conn.on('close', () => {
       console.log('Disconnected from host');
-      useGameStore.getState().setError('Disconnected from host');
+      const store = useGameStore.getState();
+      store.setError('Disconnected from host');
+      store.resetSession();
     });
 
     conn.on('error', (err) => {
@@ -549,10 +790,21 @@ class NetworkManager {
   }
 
   private handleNightAction(senderId: string, action: string, targetId: string) {
+      const store = useGameStore.getState();
+      const role = (store.allRoles || {})[senderId];
+
       if (action === 'KILL') {
-          this.nightActions.mafiaVote[senderId] = targetId;
+          if (role === 'mafia') {
+              this.nightActions.mafiaVote[senderId] = targetId;
+          } else if (role === 'vigilante') {
+              this.nightActions.vigilanteTargets[senderId] = targetId;
+          } else if (role === 'serial_killer') {
+              this.nightActions.serialKillerTargets[senderId] = targetId;
+          }
       } else if (action === 'SAVE') {
           this.nightActions.doctorTargets[senderId] = targetId;
+      } else if (action === 'PROTECT') {
+          this.nightActions.bodyguardTargets[senderId] = targetId;
       } else if (action === 'INVESTIGATE') {
           this.nightActions.detectiveTargets[senderId] = targetId;
       }
@@ -658,6 +910,12 @@ class NetworkManager {
             store.resetToLobby();
         } else {
             store.setPhase(message.payload.phase);
+            
+            // Reset vote counts when entering voting phase
+            if (message.payload.phase === 'voting') {
+                store.setVoteCounts({});
+            }
+
             if (message.payload.payload?.lastNightResult) {
                 store.setLastNightResult(message.payload.payload.lastNightResult);
             }
@@ -675,8 +933,12 @@ class NetworkManager {
 
       case 'VOTE':
           if (store.myId === store.hostId) {
-              this.dayVotes[message.senderId] = message.payload.targetId;
+              this.processVote(message.senderId, message.payload.targetId);
           }
+          break;
+          
+      case 'VOTE_UPDATE':
+          store.setVoteCounts(message.payload.voteCounts);
           break;
 
       case 'GAME_OVER':
@@ -729,7 +991,77 @@ class NetworkManager {
           store.resetSession();
           alert('The host has ended the game.');
           break;
+
+      case 'UPDATE_LAST_WILL':
+          if (store.myId === store.hostId) {
+              // @ts-ignore
+              this.lastWills[message.senderId] = message.payload.content;
+          }
+          break;
+
+      case 'WHISPER':
+          // @ts-ignore
+          const payload = message.payload;
+          const targetId = payload.recipientId;
+          
+          if (store.myId === store.hostId) {
+              // Host Logic
+              if (targetId && targetId === store.myId) {
+                  // Host is the recipient
+                  store.addMessage(payload);
+              } else if (targetId) {
+                  // Forward to target
+                  const conn = this.connections.get(targetId);
+                  if (conn) {
+                      this.sendMessage(conn, message);
+                  }
+              }
+          } else {
+              // Client Logic (Recipient)
+              store.addMessage(payload);
+          }
+          break;
+
+      case 'DEATH_INFO':
+          store.setMyDeathReason(message.payload.reason);
+          break;
     }
+  }
+
+  sendWhisper(targetId: string, content: string) {
+      const store = useGameStore.getState();
+      
+      const chatMsg: NetworkMessage = {
+          type: 'WHISPER',
+          senderId: store.myId,
+          payload: {
+              id: Math.random().toString(36).substring(2, 10),
+              senderId: store.myId,
+              senderName: store.players[store.myId]?.name || 'Unknown',
+              content,
+              timestamp: Date.now(),
+              recipientId: targetId
+          }
+      };
+
+      // Add locally
+      store.addMessage(chatMsg.payload as any);
+
+      if (store.myId === store.hostId) {
+          // If sending to self (weird but possible)
+          if (targetId === store.myId) return;
+
+          // Send directly to target
+          const conn = this.connections.get(targetId);
+          if (conn) {
+              this.sendMessage(conn, chatMsg);
+          }
+      } else {
+          // Send to host to route
+          if (this.hostConnection) {
+              this.sendMessage(this.hostConnection, chatMsg);
+          }
+      }
   }
 
   leaveGame() {
@@ -771,7 +1103,7 @@ class NetworkManager {
       store.resetToLobby();
   }
 
-  sendChatMessage(content: string, channel: 'global' | 'mafia' = 'global') {
+  sendChatMessage(content: string, channel: 'global' | 'mafia' | 'dead' = 'global') {
     const store = useGameStore.getState();
     const chatMsg: NetworkMessage = {
       type: 'CHAT_MESSAGE',
@@ -802,6 +1134,29 @@ class NetworkManager {
                if (conn) this.sendMessage(conn, chatMsg);
            }
         });
+      } else if (channel === 'dead') {
+          const recipients = new Set<string>();
+          
+          // Add all dead players
+          Object.values(store.players).forEach(p => {
+              if (!p.isAlive) recipients.add(p.id);
+          });
+
+          // Add Medium if Night and Alive
+          const mediumEntry = Object.entries(store.allRoles || {}).find(([_, r]) => r === 'medium');
+          if (mediumEntry) {
+              const [mediumId] = mediumEntry;
+              if (store.phase === 'night' && store.players[mediumId]?.isAlive) {
+                  recipients.add(mediumId);
+              }
+          }
+
+          recipients.forEach(id => {
+              if (id !== store.myId) {
+                  const conn = this.connections.get(id);
+                  if (conn) this.sendMessage(conn, chatMsg);
+              }
+          });
       } else {
         this.broadcast(chatMsg);
       }

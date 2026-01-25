@@ -3,6 +3,7 @@ import { useGameStore } from './store';
 import { NetworkMessage, Player, PlayerId, GamePhase } from './types';
 import { distributeRoles } from './gameLogic';
 import { generateBotName, getBotNightAction, getBotDayVote } from './bots';
+import { soundManager } from './sound';
 
 function generateShortId(): string {
   // Generate a random 6-character alphanumeric string
@@ -641,9 +642,9 @@ class NetworkManager {
       } else {
           // Tie or Skip wins
           if (winners.includes('SKIP') && winners.length === 1) {
-              resultText = "The town decided to skip voting.";
+              resultText = `The town decided to skip voting with ${maxVotes} votes.`;
           } else {
-              resultText = "The vote ended in a tie or skip majority. No one was voted out.";
+              resultText = `The vote ended in a tie or skip majority (${maxVotes} votes). No one was voted out.`;
           }
           this.broadcastSystemMessage(resultText);
       }
@@ -918,6 +919,9 @@ class NetworkManager {
 
             if (message.payload.payload?.lastNightResult) {
                 store.setLastNightResult(message.payload.payload.lastNightResult);
+                if (message.payload.payload.lastNightResult.includes('died') || message.payload.payload.lastNightResult.includes('found dead')) {
+                    soundManager.playKillSound();
+                }
             }
             if (message.payload.timerEnd) {
               store.setTimerEnd(message.payload.timerEnd);

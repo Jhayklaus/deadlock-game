@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useGameStore } from './lib/store';
 import { networkManager } from './lib/network';
+import { soundManager } from './lib/sound';
 import Lobby from './components/Lobby';
 import RoleCard from './components/RoleCard';
 import NightPhase from './components/NightPhase';
@@ -17,6 +18,16 @@ function App() {
     hostId: state.hostId,
     players: state.players
   }));
+
+  useEffect(() => {
+    if (phase !== 'lobby' && phase !== 'game_over') {
+        // User interaction is required for AudioContext, but we try anyway.
+        // It will likely resume on next click if suspended.
+        soundManager.playBackgroundMusic();
+    } else {
+        soundManager.stopBackgroundMusic();
+    }
+  }, [phase]);
 
   useEffect(() => {
     // Attempt to restore session
@@ -54,7 +65,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center flex-col gap-4 p-4 relative font-sans selection:bg-red-900 selection:text-white">
+    <div className="min-h-screen bg-transparent text-slate-100 flex items-center justify-center flex-col gap-4 p-4 relative font-sans selection:bg-red-900 selection:text-white">
       {showExitButton && (
         <button
           onClick={handleExit}
@@ -65,10 +76,10 @@ function App() {
       )}
       <Timer />
       <header className="mb-8 text-center animate-in fade-in slide-in-from-top-4 duration-1000">
-        <h1 className="text-6xl md:text-8xl font-black text-red-600 tracking-tighter drop-shadow-[0_0_25px_rgba(220,38,38,0.5)] mb-2 font-serif uppercase">
+        <h1 className="text-6xl md:text-8xl font-black text-red-600 tracking-tighter drop-shadow-[0_0_25px_rgba(220,38,38,0.5)] mb-2 font-creepster uppercase">
           DEADLOCK
         </h1>
-        <p className="text-slate-500 font-medium tracking-[0.2em] text-sm md:text-base uppercase border-t border-b border-slate-800 py-2 inline-block px-8">
+        <p className="text-slate-400 font-medium tracking-[0.2em] text-sm md:text-base uppercase border-t border-b border-slate-800 py-2 inline-block px-8">
           Trust No One • Survive The Night
         </p>
         <CheatSheet />

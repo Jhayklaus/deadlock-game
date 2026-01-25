@@ -38,7 +38,7 @@ export default function DayPhase() {
   if (!isAlive) {
     return (
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="text-center p-8 bg-slate-800 rounded-xl border border-slate-700">
+        <div className="text-center p-8 bg-slate-900/90 backdrop-blur-md rounded-xl border border-slate-700">
           <h2 className="text-3xl font-bold text-red-500 mb-4">You are Dead 💀</h2>
           <p className="text-slate-400">You can watch, but you cannot speak to the living.</p>
           {myDeathReason && <p className="mt-2 text-red-400 font-semibold">{myDeathReason}</p>}
@@ -54,9 +54,9 @@ export default function DayPhase() {
 
   return (
     <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="bg-slate-800 p-8 rounded-xl border border-slate-700 flex flex-col">
+      <div className="bg-slate-900/90 backdrop-blur-md p-8 rounded-xl border border-slate-700 flex flex-col">
         <LastWillEditor />
-        <h2 className="text-3xl font-bold text-slate-100 mb-2 text-center">Day Phase ☀️</h2>
+        <h2 className="text-3xl font-bold text-slate-100 mb-2 text-center font-creepster tracking-wider">Day Phase ☀️</h2>
         
         {/* Night Result Announcement */}
         <div className="bg-slate-900/50 p-4 rounded-lg text-center mb-8 border border-slate-700">

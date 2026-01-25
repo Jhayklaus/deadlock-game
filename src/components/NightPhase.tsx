@@ -1,7 +1,8 @@
 import { useGameStore } from '../lib/store';
 import { clsx } from 'clsx';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { networkManager } from '../lib/network';
+import { soundManager } from '../lib/sound';
 import ChatBox from './ChatBox';
 import LastWillEditor from './LastWillEditor';
 import Graveyard from './Graveyard';
@@ -14,6 +15,10 @@ export default function NightPhase() {
     mafiaPartners: state.mafiaPartners,
     myDeathReason: state.myDeathReason
   }));
+
+  useEffect(() => {
+    soundManager.playPhaseChange();
+  }, []);
 
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
   const [hasActed, setHasActed] = useState(false);
@@ -86,7 +91,7 @@ export default function NightPhase() {
       <div className="flex flex-col md:flex-row gap-6 w-full max-w-5xl justify-center items-start">
         <div className="text-center p-8 bg-slate-900/80 rounded-xl border border-slate-700 backdrop-blur-sm flex-1">
             <LastWillEditor />
-            <h2 className="text-3xl font-bold text-purple-400 mb-4 font-serif">The Spirit World</h2>
+            <h2 className="text-3xl font-bold text-purple-400 mb-4 font-creepster tracking-wider">The Spirit World</h2>
             <p className="text-slate-400">You can hear the whispers of the dead.</p>
             <Graveyard />
         </div>

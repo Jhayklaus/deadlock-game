@@ -1,3 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Creepster&family=Nosifer&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    background-image: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.85)), url('/background.jpg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    min-height: 100vh;
+    @apply text-slate-200 bg-slate-950;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-creepster;
+  }
+}
+
+@layer utilities {
+  .font-creepster {
+    font-family: 'Creepster', system-ui, cursive;
+    letter-spacing: 0.05em;
+  }
+  .font-nosifer {
+    font-family: 'Nosifer', system-ui, cursive;
+  }
+}

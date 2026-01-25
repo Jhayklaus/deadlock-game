@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
+import { soundManager } from '../lib/sound';
 import ChatBox from './ChatBox';
 import { clsx } from 'clsx';
 
@@ -12,6 +14,10 @@ export default function GameOver() {
     hostId: state.hostId
   }));
 
+  useEffect(() => {
+    soundManager.playVictorySound();
+  }, []);
+
   if (!winner || !allRoles) return null;
 
   const isWinner = (winner === 'town' && allRoles[myId] !== 'mafia' && allRoles[myId] !== 'serial_killer' && allRoles[myId] !== 'jester') ||
@@ -22,8 +28,8 @@ export default function GameOver() {
   const isHost = myId === hostId;
 
   return (
-    <div className="w-full max-w-2xl bg-slate-800 p-8 rounded-xl border border-slate-700 text-center animate-in zoom-in duration-500">
-      <h2 className={clsx("text-5xl font-black mb-4 uppercase drop-shadow-lg", 
+    <div className="w-full max-w-2xl bg-slate-900/90 backdrop-blur-md p-8 rounded-xl border border-slate-700 text-center animate-in zoom-in duration-500">
+      <h2 className={clsx("text-5xl font-black mb-4 uppercase drop-shadow-lg font-creepster tracking-wider", 
         winner === 'mafia' ? "text-red-500" : 
         winner === 'serial_killer' ? "text-orange-600" :
         winner === 'jester' ? "text-pink-500" :

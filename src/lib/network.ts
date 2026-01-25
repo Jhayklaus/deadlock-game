@@ -372,25 +372,20 @@ class NetworkManager {
     const potentialVictims = new Map<string, string>();
     const vigilanteSuicides = new Map<string, string>();
 
-    // 2a. Mafia Kill
-    const votes = Object.values(this.nightActions.mafiaVote);
-    let mafiaTargetId: string | null = null;
+    // 2a. Mafia Kill (Individual Kills)
+    // Now processes ALL mafia votes as individual kills instead of voting for one target
+    const mafiaVotes = Object.entries(this.nightActions.mafiaVote);
     
-    if (votes.length > 0) {
-       const voteCounts: Record<string, number> = {};
-       votes.forEach(v => voteCounts[v] = (voteCounts[v] || 0) + 1);
-       
-       let maxVotes = 0;
-       Object.values(voteCounts).forEach(c => {
-         if (c > maxVotes) maxVotes = c;
-       });
-       
-       const candidates = Object.keys(voteCounts).filter(id => voteCounts[id] === maxVotes);
-       mafiaTargetId = candidates[Math.floor(Math.random() * candidates.length)];
-       if (mafiaTargetId) {
-           potentialVictims.set(mafiaTargetId, "You were killed by the Mafia.");
-       }
-    }
+    mafiaVotes.forEach(([mafiaId, targetId]) => {
+        if (!targetId) return;
+        
+        // Prevent duplicate kill messages if multiple mafia target the same person
+        const existing = potentialVictims.get(targetId);
+        if (!existing || !existing.includes("Mafia")) {
+            const reason = "You were killed by the Mafia.";
+            potentialVictims.set(targetId, existing ? `${existing} And ${reason}` : reason);
+        }
+    });
 
       // 2b. Serial Killer Kill
     Object.entries(this.nightActions.serialKillerTargets).forEach(([skId, targetId]) => {

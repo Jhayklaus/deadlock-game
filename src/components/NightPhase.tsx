@@ -74,7 +74,7 @@ export default function NightPhase() {
     );
   }
 
-  if (myRole === 'civilian' || myRole === 'mayor') {
+  if (myRole === 'civilian' || myRole === 'mayor' || myRole === 'jester') {
     return (
       <div className="text-center p-8">
         <LastWillEditor />
@@ -131,7 +131,9 @@ export default function NightPhase() {
                     "p-3 rounded-lg border text-left transition relative overflow-hidden",
                     selectedTarget === player.id 
                       ? "border-red-500 bg-red-950/50 text-white" 
-                      : "border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-700"
+                      : (myRole === 'mafia' && mafiaPartners.includes(player.id))
+                        ? "border-red-500/50 bg-red-900/20 text-red-300"
+                        : "border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-700"
                   )}
                 >
                   <span className="relative z-10 font-medium">{player.name}</span>

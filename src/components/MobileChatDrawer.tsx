@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageSquare, X, ChevronDown } from 'lucide-react';
+import { MessageSquare, ChevronDown } from 'lucide-react';
 import { clsx } from 'clsx';
 import ChatBox from './ChatBox';
 

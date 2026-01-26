@@ -4,7 +4,7 @@ import { networkManager } from '../lib/network';
 import { soundManager } from '../lib/sound';
 import ChatBox from './ChatBox';
 import { clsx } from 'clsx';
-import { Trophy, Skull, Crown, RotateCcw, User, Loader2 } from 'lucide-react';
+import { Trophy, Skull, Crown, RotateCcw, User } from 'lucide-react';
 import MobileChatDrawer from './MobileChatDrawer';
 
 export default function GameOver() {

@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { useGameStore } from './store';
-import { NetworkMessage, Player, PlayerId, GamePhase, Role, ChatMessage } from './types';
+import { NetworkMessage, Player, PlayerId, GamePhase } from './types';
 import { distributeRoles } from './gameLogic';
 import { generateBotName, getBotNightAction, getBotDayVote } from './bots';
 import { soundManager } from './sound';
@@ -86,7 +86,7 @@ class NetworkManager {
         this.handleMessage(msg);
     });
 
-    this.socket.on('p2p_message', ({ senderId, message }: { senderId: string, message: NetworkMessage }) => {
+    this.socket.on('p2p_message', ({ message }: { senderId: string, message: NetworkMessage }) => {
         // We ignore senderId from socket event because it's inside message too, 
         // or we can use it to verify.
         this.handleMessage(message);
@@ -937,7 +937,6 @@ class NetworkManager {
               }
           } else if (message.payload.channel === 'dead') {
               // Dead Chat Logic (includes Medium)
-              const role = store.myRole;
               if (store.myId === store.hostId) {
                  // Host always sees? Or maybe only if dead/medium?
                  // Let's say Host sees everything for debug/monitoring.
@@ -1101,7 +1100,6 @@ class NetworkManager {
 
   sendWhisper(targetId: string, content: string) {
       const store = useGameStore.getState();
-      const targetName = store.players[targetId]?.name || 'Unknown';
       
       const whisperMsg: NetworkMessage = {
           type: 'WHISPER',

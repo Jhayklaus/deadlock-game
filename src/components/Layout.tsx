@@ -3,16 +3,15 @@ import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
 import Timer from './Timer';
 import CheatSheet from './CheatSheet';
-import { LogOut, AlertTriangle, User, X, Crown } from 'lucide-react';
+import { LogOut, AlertTriangle, X, Crown } from 'lucide-react';
 
 interface LayoutProps {
   children: ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { error, myId, hostId } = useGameStore(state => ({
+  const { error, hostId } = useGameStore(state => ({
     error: state.error,
-    myId: state.myId,
     hostId: state.hostId,
   }));
 

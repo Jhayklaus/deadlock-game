@@ -4,12 +4,18 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 
 const app = express();
-app.use(cors());
+
+// Allow connections from your frontend (set CLIENT_URL in production)
+const clientUrl = process.env.CLIENT_URL || "*";
+
+app.use(cors({
+  origin: clientUrl
+}));
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: "*",
+    origin: clientUrl,
     methods: ["GET", "POST"]
   }
 });

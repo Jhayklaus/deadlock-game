@@ -16,7 +16,7 @@ export interface Player {
   lastWill?: string;
 }
 
-export type GamePhase = 'lobby' | 'role_assignment' | 'night' | 'day_discussion' | 'voting' | 'game_over';
+export type GamePhase = 'lobby' | 'role_assignment' | 'night' | 'day_discussion' | 'voting' | 'elimination_reveal' | 'game_over';
 
 export interface GameState {
   hostId: PlayerId | null;
@@ -30,6 +30,8 @@ export interface GameState {
   mafiaPartners: PlayerId[];
   // Result of the night phase
   lastNightResult: string;
+  // Result of the elimination phase
+  eliminationResult: { eliminatedId: PlayerId | null; resultText: string } | null;
   // Current vote counts (for voting phase UI)
   voteCounts: Record<PlayerId, number>;
   winner: 'town' | 'mafia' | 'serial_killer' | 'jester' | null;

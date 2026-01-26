@@ -14,9 +14,10 @@
   "license": "ISC",
   "dependencies": {
     "clsx": "^2.1.1",
-    "peerjs": "^1.5.2",
+    "lucide-react": "^0.563.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "socket.io-client": "^4.8.3",
     "tailwind-merge": "^2.2.1",
     "uuid": "^9.0.1",
     "zustand": "^4.5.0"
@@ -28,7 +29,10 @@
     "@types/uuid": "^9.0.7",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "postcss": "^8.4.33",
+    "socket.io": "^4.8.3",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
     "vite": "^5.0.12"

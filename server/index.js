@@ -14,7 +14,7 @@ const io = new Server(httpServer, {
   }
 });
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // Maps for ID resolution
 const userToSocket = new Map(); // userId -> socketId

@@ -5,7 +5,7 @@ import { distributeRoles } from './gameLogic';
 import { generateBotName, getBotNightAction, getBotDayVote } from './bots';
 import { soundManager } from './sound';
 
-const SERVER_URL = 'http://localhost:3001';
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
 function generateShortId(): string {
   // Generate a random 6-character alphanumeric string

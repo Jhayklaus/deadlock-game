@@ -85,7 +85,8 @@ export type MessageType =
   | 'LOBBY_CLOSED'
   | 'UPDATE_LAST_WILL'
   | 'WHISPER'
-  | 'DEATH_INFO';
+  | 'DEATH_INFO'
+  | 'KICK_PLAYER';
 
 export interface BaseMessage {
   type: MessageType;
@@ -194,6 +195,11 @@ export interface DeathInfoMessage extends BaseMessage {
   };
 }
 
+export interface KickPlayerMessage extends BaseMessage {
+  type: 'KICK_PLAYER';
+  payload: {};
+}
+
 export type NetworkMessage = 
   | JoinMessage 
   | WelcomeMessage 
@@ -209,4 +215,5 @@ export type NetworkMessage =
   | LobbyClosedMessage
   | UpdateLastWillMessage
   | WhisperMessage
-  | DeathInfoMessage;
+  | DeathInfoMessage
+  | KickPlayerMessage;

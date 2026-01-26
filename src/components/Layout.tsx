@@ -39,7 +39,6 @@ export default function Layout({ children }: LayoutProps) {
         </div>
 
         <div className="flex items-center gap-4">
-          <Timer />
           <CheatSheet />
 
           {/* {myId && (
@@ -86,14 +85,21 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Main Content Area */}
       <main className="flex-1 w-full relative z-10 overflow-y-auto custom-scrollbar">
-        <div className="w-full min-h-full flex flex-col items-center justify-center p-6 md:p-12">
-          {children}
+        <div className="w-full min-h-full flex flex-col items-center justify-center p-4 md:p-12">
+          {/* Timer Display */}
+          <div className="sticky top-0 z-30 mb-6 drop-shadow-lg">
+            <Timer />
+          </div>
+
+          <div className="flex-1 w-full flex flex-col items-center justify-center">
+            {children}
+          </div>
         </div>
       </main>
 
       {/* Footer */}
       <footer className="relative z-20 py-3 text-center text-slate-700 text-[10px] tracking-[0.2em] uppercase bg-slate-950/50 border-t border-slate-900">
-        v0.2.0 • Socket.IO Client-Server
+        v0.2.0 • Developed with ❤️ by <span className='underline'><a target="_blank" rel="noopener noreferrer" href='http://github.com/jhayklaus'>Jhayklaus</a></span>
       </footer>
     </div>
   );

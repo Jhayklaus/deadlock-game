@@ -14,6 +14,7 @@ interface GameActions {
   setMyRole: (role: Role, mafiaPartners?: PlayerId[]) => void;
   setAllRoles: (roles: Record<PlayerId, Role>) => void;
   setLastNightResult: (result: string) => void;
+  setEliminationResult: (result: { eliminatedId: PlayerId | null; resultText: string } | null) => void;
   setVoteCounts: (counts: Record<PlayerId, number>) => void;
   setGameOver: (winner: 'town' | 'mafia' | 'serial_killer' | 'jester', allRoles: Record<PlayerId, Role>) => void;
   resetGame: () => void;
@@ -52,6 +53,7 @@ const initialState: GameState = {
   myRole: null,
   mafiaPartners: [],
   lastNightResult: '',
+  eliminationResult: null,
   voteCounts: {},
   winner: null,
   allRoles: null,
@@ -99,6 +101,7 @@ export const useGameStore = create<GameState & GameActions>()(
       setAllRoles: (allRoles) => set({ allRoles }),
 
       setLastNightResult: (result) => set({ lastNightResult: result }),
+      setEliminationResult: (result) => set({ eliminationResult: result }),
       setVoteCounts: (voteCounts) => set({ voteCounts }),
       setMyDeathReason: (reason) => set({ myDeathReason: reason }),
       
@@ -127,6 +130,7 @@ export const useGameStore = create<GameState & GameActions>()(
           myRole: null,
           mafiaPartners: [],
           lastNightResult: '',
+          eliminationResult: null,
           voteCounts: {},
           winner: null,
           allRoles: null,
@@ -153,6 +157,7 @@ export const useGameStore = create<GameState & GameActions>()(
         myRole: state.myRole,
         mafiaPartners: state.mafiaPartners,
         lastNightResult: state.lastNightResult,
+        eliminationResult: state.eliminationResult,
         winner: state.winner,
         allRoles: state.allRoles,
         settings: state.settings,

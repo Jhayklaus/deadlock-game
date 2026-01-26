@@ -8,6 +8,7 @@ import RoleCard from './components/RoleCard';
 import NightPhase from './components/NightPhase';
 import DayPhase from './components/DayPhase';
 import GameOver from './components/GameOver';
+import EliminationReveal from './components/EliminationReveal';
 
 function App() {
   const { phase, myId, hostId, players } = useGameStore(state => ({
@@ -42,6 +43,7 @@ function App() {
         {phase === 'role_assignment' && <RoleCard />}
         {phase === 'night' && <NightPhase />}
         {(phase === 'day_discussion' || phase === 'voting') && <DayPhase />}
+        {phase === 'elimination_reveal' && <EliminationReveal />}
         {phase === 'game_over' && <GameOver />}
     </Layout>
   )

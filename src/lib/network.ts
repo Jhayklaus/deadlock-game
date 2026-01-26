@@ -127,6 +127,9 @@ class NetworkManager {
           case 'voting':
               this.resolveVotingPhase();
               break;
+          case 'elimination_reveal':
+              this.startNightPhase();
+              break;
       }
   }
 
@@ -379,41 +382,35 @@ class NetworkManager {
     const vigilanteKills = this.nightActions.vigilanteTargets;
     const serialKillerKills = this.nightActions.serialKillerTargets;
 
-    // Calculate Mafia target (plurality)
-    const voteCounts: Record<string, number> = {};
-    Object.values(mafiaVotes).forEach(target => {
-        voteCounts[target] = (voteCounts[target] || 0) + 1;
-    });
-    let mafiaTarget: string | null = null;
-    let maxVotes = 0;
-    Object.entries(voteCounts).forEach(([target, count]) => {
-        if (count > maxVotes) {
-            maxVotes = count;
-            mafiaTarget = target;
-        }
-    });
+    // Calculate Mafia targets (Individual Kills)
+    // Each mafia member's vote counts as a separate attack
+    const mafiaTargets = new Set<string>(Object.values(mafiaVotes));
 
     const deaths: string[] = [];
     const savedPlayers: string[] = [];
 
-    // Resolve Mafia Kill
-    if (mafiaTarget) {
-        const isSaved = doctorSaves.includes(mafiaTarget) || bodyguardProtects.includes(mafiaTarget);
+    // Resolve Mafia Kills
+    mafiaTargets.forEach(target => {
+        const isSaved = doctorSaves.includes(target) || bodyguardProtects.includes(target);
         if (isSaved) {
-            savedPlayers.push(mafiaTarget);
-            this.sendPrivateSystemMessage(mafiaTarget, "You were attacked but saved by a Doctor or Bodyguard!");
+            if (!savedPlayers.includes(target)) {
+                savedPlayers.push(target);
+                this.sendPrivateSystemMessage(target, "You were attacked but saved by a Doctor or Bodyguard!");
+            }
         } else {
-            deaths.push(mafiaTarget);
-            
-            // Find who voted for this target
-            const killers = Object.entries(mafiaVotes)
-                .filter(([_, target]) => target === mafiaTarget)
-                .map(([voterId]) => store.players[voterId]?.name || 'Unknown')
-                .join(', ');
+            if (!deaths.includes(target)) {
+                deaths.push(target);
                 
-            this.sendDeathInfo(mafiaTarget, `You were killed by the Mafia (${killers}).`);
+                // Find who voted for this target
+                // const killers = Object.entries(mafiaVotes)
+                //    .filter(([_, t]) => t === target)
+                //    .map(([voterId]) => store.players[voterId]?.name || 'Unknown')
+                //    .join(', ');
+                    
+                this.sendDeathInfo(target, `You were killed by the Mafia.`);
+            }
         }
-    }
+    });
 
     // Resolve Vigilante Kills
     Object.entries(vigilanteKills).forEach(([vigilanteId, targetId]) => {
@@ -690,7 +687,26 @@ class NetworkManager {
 
       if (this.checkWinCondition()) return;
 
-      this.startNightPhase();
+      // Start Elimination Reveal Phase
+      const eliminationResult = { eliminatedId, resultText };
+      const duration = 8000; // 8 seconds for reveal animation
+      const timerEnd = Date.now() + duration;
+
+      const msg: NetworkMessage = {
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { 
+              phase: 'elimination_reveal',
+              payload: { eliminationResult },
+              timerEnd
+          }
+      };
+      this.broadcast(msg);
+      store.setPhase('elimination_reveal');
+      store.setEliminationResult(eliminationResult);
+      store.setTimerEnd(timerEnd);
+
+      setTimeout(() => this.handlePhaseTimeout('elimination_reveal'), duration);
   }
 
   private checkWinCondition(): boolean {
@@ -884,6 +900,9 @@ class NetworkManager {
                 if (message.payload.payload.lastNightResult.includes('died') || message.payload.payload.lastNightResult.includes('found dead')) {
                     soundManager.playKillSound();
                 }
+            }
+            if (message.payload.payload?.eliminationResult) {
+                store.setEliminationResult(message.payload.payload.eliminationResult);
             }
             if (message.payload.timerEnd) {
               store.setTimerEnd(message.payload.timerEnd);

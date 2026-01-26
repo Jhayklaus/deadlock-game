@@ -8,6 +8,9 @@ import MobileChatDrawer from './MobileChatDrawer';
 import LastWillEditor from './LastWillEditor';
 import Graveyard from './Graveyard';
 import { Moon, Skull, Ghost, Eye, Shield, Crosshair, HeartPulse, Hourglass } from 'lucide-react';
+import { Card } from './ui/Card';
+import { Button } from './ui/Button';
+import { Badge } from './ui/Badge';
 
 export default function NightPhase() {
   const { myRole, players, myId, mafiaPartners, myDeathReason } = useGameStore(state => ({
@@ -77,19 +80,19 @@ export default function NightPhase() {
   if (!isAlive) {
     return (
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-        <div className="text-center p-8 bg-slate-900/90 backdrop-blur-md rounded-2xl border border-slate-800 flex flex-col items-center justify-center">
+        <Card variant="glass" className="flex flex-col items-center justify-center text-center p-8 border-slate-800">
           <Skull size={64} className="text-red-500 mb-4 animate-pulse" />
-          <h2 className="text-3xl font-bold text-red-500 mb-4 font-creepster tracking-wider">You are Dead</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-red-500 mb-4 font-creepster tracking-wider">You are Dead</h2>
           <p className="text-slate-400 mb-6">The dead tell no tales... but they can whisper to each other.</p>
           {myDeathReason && (
-             <div className="bg-red-950/50 border border-red-900/50 p-4 rounded-xl mb-6">
+             <div className="bg-red-950/50 border border-red-900/50 p-4 rounded-xl mb-6 w-full">
                 <p className="text-red-300 font-semibold">{myDeathReason}</p>
              </div>
           )}
           <div className="w-full">
             <Graveyard />
           </div>
-        </div>
+        </Card>
         <div className="hidden lg:flex justify-center h-full min-h-[500px]">
           <ChatBox channel="dead" />
         </div>
@@ -100,14 +103,14 @@ export default function NightPhase() {
 
   if (myRole === 'civilian' || myRole === 'mayor' || myRole === 'jester') {
     return (
-      <div className="w-full max-w-4xl mx-auto space-y-8">
-        <div className="text-center p-12 bg-slate-900/90 backdrop-blur-md rounded-2xl border border-slate-800">
+      <div className="w-full max-w-4xl mx-auto space-y-6 md:space-y-8">
+        <Card variant="glass" className="text-center p-8 md:p-12 border-slate-800">
             <div className="flex justify-center mb-6">
                 <Moon size={64} className="text-slate-600 animate-pulse" />
             </div>
-            <h2 className="text-4xl font-bold text-slate-400 mb-4 font-serif">Night has fallen</h2>
+            <h2 className="text-2xl md:text-4xl font-bold text-slate-400 mb-4 font-serif">Night has fallen</h2>
             <p className="text-slate-500 text-lg">Sleep safely. The city is busy.</p>
-        </div>
+        </Card>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <LastWillEditor />
             <Graveyard />
@@ -119,7 +122,7 @@ export default function NightPhase() {
   if (myRole === 'medium') {
     return (
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-        <div className="text-center p-8 bg-slate-900/90 backdrop-blur-md rounded-2xl border border-slate-800 flex flex-col items-center justify-center">
+        <Card variant="glass" className="flex flex-col items-center justify-center text-center p-8 border-slate-800">
             <Ghost size={64} className="text-purple-500 mb-4 animate-bounce-slow" />
             <h2 className="text-3xl font-bold text-purple-400 mb-4 font-creepster tracking-wider">The Spirit World</h2>
             <p className="text-slate-400 mb-6">You can hear the whispers of the dead.</p>
@@ -128,7 +131,7 @@ export default function NightPhase() {
                 <div className="mt-6"></div>
                 <Graveyard />
             </div>
-        </div>
+        </Card>
         <div className="flex justify-center h-full min-h-[500px]">
             <ChatBox channel="dead" />
         </div>
@@ -143,23 +146,28 @@ export default function NightPhase() {
   return (
     <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-6">
       <div className="lg:col-span-7 space-y-6">
-        <div className="bg-slate-900/90 backdrop-blur-md p-8 rounded-2xl border border-slate-800 flex flex-col relative">
+        <Card variant="glass" className="flex flex-col relative border-slate-800">
             <div className="flex items-center gap-4 mb-8 pb-6 border-b border-slate-800">
                 <div className="bg-slate-800 p-3 rounded-xl">
                     {getRoleIcon()}
                 </div>
                 <div>
                     <h2 className="text-2xl font-bold text-slate-100">Night Phase</h2>
-                    <p className="text-slate-400 text-sm">
-                        Role: <span className={clsx("font-bold uppercase tracking-wider", 
-                            myRole === 'mafia' ? "text-red-500" : 
-                            myRole === 'detective' ? "text-blue-400" : 
-                            myRole === 'doctor' ? "text-green-400" :
-                            myRole === 'vigilante' ? "text-amber-600" :
-                            myRole === 'serial_killer' ? "text-red-600" :
-                            "text-slate-400"
-                        )}>{myRole}</span>
-                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                        <span className="text-slate-400 text-sm">Role:</span>
+                        <Badge 
+                            variant={
+                                myRole === 'mafia' ? 'danger' : 
+                                myRole === 'detective' ? 'info' : 
+                                myRole === 'doctor' ? 'success' :
+                                myRole === 'vigilante' ? 'warning' :
+                                myRole === 'serial_killer' ? 'danger' : 
+                                'default'
+                            }
+                        >
+                            {myRole}
+                        </Badge>
+                    </div>
                 </div>
             </div>
             
@@ -168,48 +176,54 @@ export default function NightPhase() {
                 <p className="text-slate-400 mb-4 uppercase tracking-widest text-xs font-bold">Select Target</p>
                 <div className="grid grid-cols-2 gap-3 mb-8">
                 {targets.map(player => (
-                    <button
-                    key={player.id}
-                    onClick={() => setSelectedTarget(player.id)}
-                    className={clsx(
-                        "p-4 rounded-xl border text-left transition-all relative overflow-hidden",
-                        selectedTarget === player.id 
-                        ? "border-red-500 bg-red-950/50 text-white shadow-[0_0_10px_rgba(239,68,68,0.2)]" 
-                        : (myRole === 'mafia' && mafiaPartners.includes(player.id))
-                            ? "border-red-500/30 bg-red-900/10 text-red-400/50 cursor-not-allowed"
-                            : "border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-700"
-                    )}
-                    disabled={myRole === 'mafia' && mafiaPartners.includes(player.id)}
-                    >
-                        <span className="font-bold relative z-10">{player.name}</span>
-                        {myRole === 'mafia' && mafiaPartners.includes(player.id) && (
-                            <span className="text-[10px] block opacity-50 uppercase tracking-wider">Partner</span>
+                    <Card
+                        key={player.id}
+                        variant={selectedTarget === player.id ? "interactive" : "interactive"}
+                        onClick={() => {
+                             if (myRole === 'mafia' && mafiaPartners.includes(player.id)) return;
+                             setSelectedTarget(player.id);
+                        }}
+                        className={clsx(
+                            "text-left relative group border transition-all duration-200",
+                            selectedTarget === player.id 
+                            ? "border-red-500 bg-red-950/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]" 
+                            : (myRole === 'mafia' && mafiaPartners.includes(player.id))
+                                ? "border-red-500/30 bg-red-900/10 opacity-50 cursor-not-allowed hover:border-red-500/30"
+                                : "border-slate-700 hover:border-slate-600"
                         )}
-                    </button>
+                    >
+                        <div className="flex flex-col relative z-10">
+                            <span className={clsx("font-bold", selectedTarget === player.id ? "text-white" : "text-slate-300")}>
+                                {player.name}
+                            </span>
+                            {myRole === 'mafia' && mafiaPartners.includes(player.id) && (
+                                <span className="text-[10px] block opacity-50 uppercase tracking-wider text-red-300">Partner</span>
+                            )}
+                        </div>
+                    </Card>
                 ))}
                 </div>
 
-                <button
-                onClick={handleAction}
-                disabled={!selectedTarget}
-                className={clsx("w-full font-bold py-4 rounded-xl transition disabled:opacity-50 flex items-center justify-center gap-2",
-                    myRole === 'mafia' ? "bg-red-700 hover:bg-red-600 text-white" : "bg-slate-100 text-slate-900 hover:bg-white"
-                )}
+                <Button
+                    onClick={handleAction}
+                    disabled={!selectedTarget}
+                    variant={myRole === 'mafia' || myRole === 'serial_killer' || myRole === 'vigilante' ? "danger" : "primary"}
+                    className="w-full flex items-center justify-center gap-2 py-4"
                 >
                     {myRole === 'mafia' ? <Crosshair size={20} /> : <Eye size={20} />}
                     <span>{getActionText()}</span>
-                </button>
+                </Button>
             </>
             ) : (
-            <div className="py-12 bg-slate-950/50 rounded-xl text-center border border-slate-800 flex flex-col items-center justify-center">
+            <Card variant="default" className="py-12 bg-slate-950/50 text-center border-slate-800 flex flex-col items-center justify-center">
                 <div className="bg-slate-900 p-4 rounded-full mb-4 animate-pulse">
                     <Hourglass size={32} className="text-slate-500" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-300 mb-2">Action Confirmed</h3>
                 <span className="text-slate-500 italic">Waiting for night to end...</span>
-            </div>
+            </Card>
             )}
-        </div>
+        </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
              <Graveyard />

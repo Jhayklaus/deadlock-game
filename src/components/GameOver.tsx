@@ -33,7 +33,7 @@ export default function GameOver() {
     <div className="w-full max-w-4xl mx-auto animate-in zoom-in duration-500 p-6">
       <div className="bg-slate-900/90 backdrop-blur-md rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
         {/* Header Section */}
-        <div className="p-12 text-center border-b border-slate-800 relative overflow-hidden">
+        <div className="p-6 md:p-12 text-center border-b border-slate-800 relative overflow-hidden">
           <div className={clsx("absolute inset-0 opacity-10", 
             winner === 'mafia' ? "bg-red-500" : 
             winner === 'serial_killer' ? "bg-orange-500" :
@@ -48,7 +48,7 @@ export default function GameOver() {
               <Skull size={64} className="text-slate-500 mb-6" />
             )}
 
-            <h2 className={clsx("text-6xl font-black mb-4 uppercase drop-shadow-lg font-creepster tracking-wider", 
+            <h2 className={clsx("text-4xl md:text-6xl font-black mb-4 uppercase drop-shadow-lg font-creepster tracking-wider", 
               winner === 'mafia' ? "text-red-500" : 
               winner === 'serial_killer' ? "text-orange-500" :
               winner === 'jester' ? "text-pink-500" :

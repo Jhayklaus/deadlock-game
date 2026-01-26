@@ -89,7 +89,6 @@ You need to run both the frontend and backend servers.
    ```bash
    npm run dev
    ```
-   The application will be available at `http://localhost:5173`.
 
 ## 📖 How to Play
 

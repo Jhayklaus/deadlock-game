@@ -37,3 +37,7 @@ coverage
 
 # TypeScript
 *.tsbuildinfo
+
+
+# Docs
+ai_docs

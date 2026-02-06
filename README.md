@@ -25,7 +25,16 @@ The game cycles through **Day** and **Night** phases:
   - **Dead Chat:** For eliminated players (and the Medium).
 - **Mobile-First Design:** Responsive UI with specialized mobile chat drawers and optimized layouts.
 - **Host Controls:** Kick players, add bots, and customize game settings.
-- **Bot Support:** AI bots to fill empty slots or for testing.
+- **Smart AI Bots:** Intelligent bots powered by LLMs (Gemini/DeepSeek) that converse, vote, and perform night actions based on their role and personality.
+
+## 🤖 Smart AI Integration
+
+DEADLOCK now features intelligent bots that go beyond random actions:
+- **Natural Language Processing:** Bots chat naturally in Global, Mafia, and Dead channels.
+- **Context Awareness:** They read the chat history and game events to make informed decisions.
+- **Personality System:** Each bot has a unique personality (e.g., Aggressive, Analytical, Chaotic).
+- **Role-Playing:** Bots understand their roles (Town, Mafia, Neutral) and act/speak accordingly.
+- **Typing Indicators:** Real-time feedback when bots are "typing" a response.
 
 ## 🛠️ Tech Stack
 
@@ -42,6 +51,7 @@ This project uses a modern web development stack:
 - **Runtime:** Node.js
 - **Server:** Express.js
 - **Real-time Engine:** [Socket.IO](https://socket.io/)
+- **AI:** Google Gemini / DeepSeek (via OpenAI SDK)
 
 ## 🚀 Getting Started
 
@@ -70,6 +80,15 @@ Follow these steps to set up the project locally.
    cd server
    npm install
    cd ..
+   ```
+
+7. **Environment Configuration**
+   Create a `.env` file in the `server` directory and add your API keys:
+   ```env
+   PORT=3001
+   GEMINI_API_KEY=your_gemini_key_here
+   # OR
+   DEEP_SEEK_API_KEY=your_deepseek_key_here
    ```
 
 ### Running the Project
@@ -107,6 +126,6 @@ You need to run both the frontend and backend servers.
 
 ## 🤝 Contact
 
-If you have any questions, suggestions, or want to contribute, feel free to reach out!
+If you have any questions, feel free to reach out!
 
 **Email:** [jamiumoyosore02@gmail.com](mailto:jamiumoyosore02@gmail.com)

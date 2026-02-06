@@ -40,6 +40,7 @@ export interface GameState {
   messages: ChatMessage[];
   timerEnd: number | null; // Timestamp for when the current phase ends
   myDeathReason: string | null;
+  typingPlayers: Record<PlayerId, boolean>;
 }
 
 export interface GameSettings {
@@ -88,7 +89,8 @@ export type MessageType =
   | 'UPDATE_LAST_WILL'
   | 'WHISPER'
   | 'DEATH_INFO'
-  | 'KICK_PLAYER';
+  | 'KICK_PLAYER'
+  | 'TYPING';
 
 export interface BaseMessage {
   type: MessageType;
@@ -202,6 +204,13 @@ export interface KickPlayerMessage extends BaseMessage {
   payload: {};
 }
 
+export interface TypingMessage extends BaseMessage {
+  type: 'TYPING';
+  payload: {
+    isTyping: boolean;
+  };
+}
+
 export type NetworkMessage = 
   | JoinMessage 
   | WelcomeMessage 
@@ -218,4 +227,5 @@ export type NetworkMessage =
   | UpdateLastWillMessage
   | WhisperMessage
   | DeathInfoMessage
-  | KickPlayerMessage;
+  | KickPlayerMessage
+  | TypingMessage;

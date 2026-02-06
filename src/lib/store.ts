@@ -24,6 +24,7 @@ interface GameActions {
   addMessage: (message: ChatMessage) => void;
   setTimerEnd: (timestamp: number | null) => void;
   setMyDeathReason: (reason: string | null) => void;
+  setTypingPlayers: (typingPlayers: Record<PlayerId, boolean>) => void;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -61,6 +62,7 @@ const initialState: GameState = {
   messages: [],
   timerEnd: null,
   myDeathReason: null,
+  typingPlayers: {},
 };
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -136,6 +138,7 @@ export const useGameStore = create<GameState & GameActions>()(
           allRoles: null,
           messages: [],
           timerEnd: null,
+          typingPlayers: {},
           error: null
         };
       }),
@@ -146,6 +149,7 @@ export const useGameStore = create<GameState & GameActions>()(
         return { messages: [...state.messages, message] };
       }),
       setTimerEnd: (timerEnd) => set({ timerEnd }),
+      setTypingPlayers: (typingPlayers) => set({ typingPlayers }),
     }),
     {
       name: 'tno-game-storage',

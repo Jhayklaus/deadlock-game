@@ -12,6 +12,8 @@ interface ChatBoxProps {
 export default function ChatBox({ channel = 'global', className }: ChatBoxProps) {
   const [input, setInput] = useState('');
   const myId = useGameStore(state => state.myId);
+  const typingPlayers = useGameStore(state => state.typingPlayers);
+  const players = useGameStore(state => state.players);
   
   const messages = useGameStore(state => state.messages.filter(m => {
     // Handle Whispers
@@ -139,6 +141,22 @@ export default function ChatBox({ channel = 'global', className }: ChatBoxProps)
             </div>
           );
         })}
+        
+        {/* Typing Indicator */}
+        {channel === 'global' && Object.entries(typingPlayers || {}).map(([id, isTyping]) => {
+            if (!isTyping || !players[id]) return null;
+            return (
+               <div key={`typing-${id}`} className="flex items-center gap-2 text-[10px] text-slate-500 italic animate-pulse px-4 mb-2">
+                 <div className="flex gap-1">
+                   <span className="w-1 h-1 bg-slate-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                   <span className="w-1 h-1 bg-slate-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                   <span className="w-1 h-1 bg-slate-500 rounded-full animate-bounce"></span>
+                 </div>
+                 {players[id].name} is typing...
+               </div>
+            );
+        })}
+
         <div ref={messagesEndRef} />
       </div>
 

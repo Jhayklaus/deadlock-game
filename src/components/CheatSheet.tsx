@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { clsx } from 'clsx';
 import { Book, X, User, Shield, Search, Crosshair, Vote, Skull, Smile, Ghost, HeartPulse } from 'lucide-react';
+import { ROLE_DEFINITIONS } from '../lib/roleData';
 
 type RoleTheme = {
   border: string;
@@ -84,115 +85,23 @@ const ROLE_THEMES: Record<string, RoleTheme> = {
   }
 };
 
-type RoleInfo = {
-  name: string;
-  icon: React.ReactNode;
-  description: string;
-  details: string[];
+const ROLE_ICONS: Record<string, React.ReactNode> = {
+  'Mafia': <Crosshair size={32} />,
+  'Doctor': <HeartPulse size={32} />,
+  'Detective': <Search size={32} />,
+  'Vigilante': <Crosshair size={32} className="rotate-45" />,
+  'Mayor': <Vote size={32} />,
+  'Serial Killer': <Skull size={32} />,
+  'Jester': <Smile size={32} />,
+  'Civilian': <User size={32} />,
+  'Bodyguard': <Shield size={32} />,
+  'Medium': <Ghost size={32} />
 };
 
-const ROLES: RoleInfo[] = [
-  {
-    name: 'Mafia',
-    icon: <Crosshair size={32} />,
-    description: 'Eliminate all Town members.',
-    details: [
-      'Knows other Mafia members.',
-      'Can kill one person each Night.',
-      'Wins when Mafia >= Town.',
-    ]
-  },
-  {
-    name: 'Doctor',
-    icon: <HeartPulse size={32} />,
-    description: 'Protect players from death.',
-    details: [
-      'Can choose one person to Save each Night.',
-      'Saved target cannot be killed by Mafia or Vigilante.',
-      'Can save themselves.'
-    ]
-  },
-  {
-    name: 'Detective',
-    icon: <Search size={32} />,
-    description: 'Gather information.',
-    details: [
-      'Can Investigate one person each Night.',
-      'Learns if the target is Mafia or Innocent.',
-      'Results are private.'
-    ]
-  },
-  {
-    name: 'Vigilante',
-    icon: <Crosshair size={32} className="rotate-45" />,
-    description: 'High-risk justice.',
-    details: [
-      'Can choose to Kill someone at Night.',
-      'If target is Mafia -> Mafia dies.',
-      'If target is Innocent -> Vigilante dies of guilt.'
-    ]
-  },
-  {
-    name: 'Mayor',
-    icon: <Vote size={32} />,
-    description: 'Political power.',
-    details: [
-      'Vote counts as 2 during Day phase.',
-      'Revealed only when voting (or keeps it secret).',
-      'Otherwise acts as a Civilian.'
-    ]
-  },
-  {
-    name: 'Serial Killer',
-    icon: <Skull size={32} />,
-    description: 'Neutral Killing.',
-    details: [
-      'Kills one person each Night.',
-      'Wins if last player alive (or 1v1).',
-      'Enemy to both Town and Mafia.'
-    ]
-  },
-  {
-    name: 'Jester',
-    icon: <Smile size={32} />,
-    description: 'Neutral Evil.',
-    details: [
-      'Wants to be voted out during the Day.',
-      'Wins immediately if eliminated by vote.',
-      'Loses if killed at Night or survives.'
-    ]
-  },
-  {
-    name: 'Civilian',
-    icon: <User size={32} />,
-    description: 'The innocent majority.',
-    details: [
-      'No night abilities.',
-      'Must use discussion and voting to find Mafia.',
-      'Wins when all Mafia are eliminated.'
-    ]
-  },
-  {
-    name: 'Bodyguard',
-    icon: <Shield size={32} />,
-    description: 'Protects others at a cost.',
-    details: [
-      'Choose one person to Protect each Night.',
-      'If target is attacked, you die instead.',
-      'Cannot protect themselves.'
-    ]
-  },
-  {
-    name: 'Medium',
-    icon: <Ghost size={32} />,
-    description: 'Speaks to the dead.',
-    details: [
-      'Can read Dead Chat during the Night.',
-      'Can whisper to dead players.',
-      'Gathers information from eliminated players.'
-    ]
-  }
-];
+const ROLES = ROLE_DEFINITIONS.map(def => ({
+  ...def,
+  icon: ROLE_ICONS[def.name] || <User size={32} />
+}));
 
 export default function CheatSheet() {
   const [isOpen, setIsOpen] = useState(false);

@@ -2,7 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import { useGameStore } from './store';
 import { NetworkMessage, Player, PlayerId, GamePhase } from './types';
 import { distributeRoles } from './gameLogic';
-import { generateBotName, getBotNightAction, getBotDayVote } from './bots';
+import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from './bots';
 import { soundManager } from './sound';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
@@ -38,6 +38,9 @@ class NetworkManager {
 
   // Host state for Last Wills
   private lastWills: Record<PlayerId, string> = {};
+
+  // Bot Chat Loop
+  private botChatInterval: NodeJS.Timeout | null = null;
 
   // Initialize Socket
   initialize(existingId?: string, onOpen?: (id: string) => void) {
@@ -294,10 +297,138 @@ class NetworkManager {
       setTimeout(() => this.handlePhaseTimeout('night'), duration);
   }
 
+  private startBotChatLoop(phase: 'day' | 'night' | 'game_over') {
+      if (this.botChatInterval) clearInterval(this.botChatInterval);
+      
+      const store = useGameStore.getState();
+      if (store.myId !== store.hostId) return;
+
+      // Check every 4 seconds if a bot should speak
+      this.botChatInterval = setInterval(async () => {
+          const store = useGameStore.getState();
+          // Stop if phase changed
+          if (phase === 'night' && store.phase !== 'night') {
+             if (this.botChatInterval) clearInterval(this.botChatInterval);
+             return;
+          }
+          if (phase === 'day' && store.phase !== 'day_discussion' && store.phase !== 'voting') {
+             if (this.botChatInterval) clearInterval(this.botChatInterval);
+             return;
+          }
+          if (phase === 'game_over' && store.phase !== 'game_over') {
+             if (this.botChatInterval) clearInterval(this.botChatInterval);
+             return;
+          }
+
+          // Determine eligible channels and bots
+          const eligibleOptions: { channel: 'global' | 'mafia' | 'dead', bots: Player[] }[] = [];
+
+          // Global Chat (Alive bots) - Day or Game Over
+          if (phase === 'day' || phase === 'game_over') {
+               const globalBots = Object.values(store.players).filter(p => p.isBot && (p.isAlive || phase === 'game_over'));
+               if (globalBots.length > 0) eligibleOptions.push({ channel: 'global', bots: globalBots });
+          }
+
+          // Mafia Chat (Alive Mafia bots) - Night only (or typically when they can coordinate)
+          // We allow it during Night phase.
+          if (phase === 'night') {
+               const mafiaBots = Object.values(store.players).filter(p => p.isBot && p.isAlive && store.allRoles?.[p.id] === 'mafia');
+               if (mafiaBots.length > 0) eligibleOptions.push({ channel: 'mafia', bots: mafiaBots });
+          }
+
+          // Dead Chat (Dead bots) - Always active if there are dead bots
+          const deadBots = Object.values(store.players).filter(p => p.isBot && !p.isAlive);
+          if (deadBots.length > 0) eligibleOptions.push({ channel: 'dead', bots: deadBots });
+
+          if (eligibleOptions.length === 0) return;
+
+          // Pick one random option (channel)
+          const option = eligibleOptions[Math.floor(Math.random() * eligibleOptions.length)];
+          // Pick one random bot from that channel
+          const bot = option.bots[Math.floor(Math.random() * option.bots.length)];
+          
+          // Indicate typing
+          this.broadcastBotTyping(bot.id, true);
+
+          // Get chat history for that channel
+          const chatHistory = store.messages
+            .filter(m => m.channel === option.channel)
+            .slice(-10)
+            .map(m => `${m.senderName}: ${m.content}`)
+            .join('\n');
+
+          const message = await getBotChat(bot.id, store.players, chatHistory, store.phase, store.allRoles || {}, option.channel);
+          
+          // Stop typing
+          this.broadcastBotTyping(bot.id, false);
+
+          if (message) {
+              this.broadcastBotMessage(bot.id, message, option.channel);
+          }
+      }, 4000); // Faster check (4s) for more responsiveness
+  }
+
+  private broadcastBotTyping(botId: string, isTyping: boolean) {
+      const msg: NetworkMessage = {
+          type: 'TYPING',
+          senderId: botId,
+          payload: { isTyping }
+      };
+      // We also update local store for the host
+      const store = useGameStore.getState();
+      store.setTypingPlayers({
+          ...store.typingPlayers,
+          [botId]: isTyping
+      });
+      this.broadcast(msg);
+  }
+
+  // Helper to send bot message
+  private broadcastBotMessage(botId: string, content: string, channel: 'global' | 'mafia' | 'dead' = 'global') {
+      const store = useGameStore.getState();
+      const bot = store.players[botId];
+      if (!bot) return;
+
+      const chatMsg: NetworkMessage = {
+          type: 'CHAT_MESSAGE',
+          senderId: botId,
+          payload: {
+              id: Math.random().toString(36).substring(2, 10),
+              senderId: botId,
+              senderName: bot.name,
+              content,
+              timestamp: Date.now(),
+              channel
+          }
+      };
+      
+      store.addMessage(chatMsg.payload);
+
+      if (channel === 'global') {
+          this.broadcast(chatMsg);
+      } else if (channel === 'mafia') {
+          const mafiaIds = Object.entries(store.allRoles || {})
+              .filter(([id, role]) => role === 'mafia' && id !== store.myId)
+              .map(([id]) => id);
+          
+          mafiaIds.forEach(id => this.sendMessage(id, chatMsg));
+      } else if (channel === 'dead') {
+          Object.keys(store.players).forEach(id => {
+               const isDead = !store.players[id].isAlive;
+               const isMedium = (store.allRoles || {})[id] === 'medium' && store.players[id].isAlive;
+               if ((isDead || isMedium) && id !== store.myId) {
+                   this.sendMessage(id, chatMsg);
+               }
+          });
+      }
+  }
+
   private handleBotNightActions() {
       const store = useGameStore.getState();
       const bots = Object.values(store.players).filter(p => p.isBot && p.isAlive);
       const allRoles = store.allRoles || {};
+
+      this.startBotChatLoop('night');
 
       bots.forEach(bot => {
           const role = allRoles[bot.id];
@@ -306,11 +437,11 @@ class NetworkManager {
           // Random delay for bot actions
           const delay = Math.random() * (store.settings.nightDuration * 0.8 * 1000);
           
-          setTimeout(() => {
+          setTimeout(async () => {
               // Re-check if bot is still alive (unlikely to change during night start, but good practice)
               if (!store.players[bot.id]?.isAlive) return;
 
-              const action = getBotNightAction(bot.id, role, store.players, allRoles);
+              const action = await getBotNightAction(bot.id, role, store.players, allRoles);
               if (action) {
                   this.handleNightAction(bot.id, action.action, action.targetId);
               }
@@ -414,16 +545,30 @@ class NetworkManager {
 
     // Resolve Vigilante Kills
     Object.entries(vigilanteKills).forEach(([vigilanteId, targetId]) => {
-        // Vigilante dies if they shoot a townie? (Optional rule, keeping simple for now)
-        const isSaved = doctorSaves.includes(targetId) || bodyguardProtects.includes(targetId);
-        if (isSaved) {
-             savedPlayers.push(targetId);
-             this.sendPrivateSystemMessage(targetId, "You were attacked but saved by a Doctor or Bodyguard!");
+        // Vigilante Guilt: Dies if they shoot a Town member
+        const targetRole = (store.allRoles || {})[targetId];
+        const isTown = ['civilian', 'doctor', 'detective', 'bodyguard', 'medium', 'mayor', 'vigilante'].includes(targetRole);
+
+        if (isTown) {
+            // Target is NOT killed (unless someone else killed them), Vigilante dies instead
+            if (!deaths.includes(vigilanteId)) {
+                deaths.push(vigilanteId);
+                this.sendDeathInfo(vigilanteId, "You died from guilt after trying to kill a Town member.");
+                // Also notify the vigilante privately
+                this.sendPrivateSystemMessage(vigilanteId, "You aimed at a Town member! Overcome with guilt, you took your own life.");
+            }
         } else {
-            if (!deaths.includes(targetId)) {
-                deaths.push(targetId);
-                const killerName = store.players[vigilanteId]?.name || 'Unknown';
-                this.sendDeathInfo(targetId, `You were killed by a Vigilante (${killerName}).`);
+            // Target is bad (Mafia/SK/Jester/etc), kill them
+            const isSaved = doctorSaves.includes(targetId) || bodyguardProtects.includes(targetId);
+            if (isSaved) {
+                 savedPlayers.push(targetId);
+                 this.sendPrivateSystemMessage(targetId, "You were attacked but saved by a Doctor or Bodyguard!");
+            } else {
+                if (!deaths.includes(targetId)) {
+                    deaths.push(targetId);
+                    const killerName = store.players[vigilanteId]?.name || 'Unknown';
+                    this.sendDeathInfo(targetId, `You were killed by a Vigilante (${killerName}).`);
+                }
             }
         }
     });
@@ -506,6 +651,7 @@ class NetworkManager {
         }
     };
     this.broadcast(msg);
+    this.startBotChatLoop('day');
     store.setPhase('day_discussion');
     store.setTimerEnd(timerEnd);
     store.setLastNightResult(resultText);
@@ -543,15 +689,22 @@ class NetworkManager {
       const store = useGameStore.getState();
       const bots = Object.values(store.players).filter(p => p.isBot && p.isAlive);
 
+      // Get chat history
+      const chatHistory = store.messages
+        .filter(m => m.channel === 'global')
+        .slice(-20)
+        .map(m => `${m.senderName}: ${m.content}`)
+        .join('\n');
+
       bots.forEach(bot => {
           // Random delay for bot votes
           const delay = Math.random() * (store.settings.votingDuration * 0.8 * 1000);
           
-          setTimeout(() => {
+          setTimeout(async () => {
               // Re-check alive status
               if (!store.players[bot.id]?.isAlive) return;
 
-              const targetId = getBotDayVote(bot.id, store.players);
+              const targetId = await getBotDayVote(bot.id, store.players, chatHistory);
               this.processVote(bot.id, targetId);
           }, delay);
       });
@@ -677,15 +830,27 @@ class NetworkManager {
           }
       } else {
           // Tie or Skip wins
-          if (winners.includes('SKIP') && winners.length === 1) {
-              resultText = `The town decided to skip voting with ${maxVotes} votes.`;
-          } else {
-              resultText = `The vote ended in a tie or skip majority (${maxVotes} votes). No one was voted out.`;
-          }
-          this.broadcastSystemMessage(resultText);
+      if (winners.includes('SKIP') && winners.length === 1) {
+          resultText = `The town decided to skip voting with ${maxVotes} votes.`;
+      } else {
+          resultText = `The vote ended in a tie or skip majority (${maxVotes} votes). No one was voted out.`;
       }
+      this.broadcastSystemMessage(resultText);
+  }
 
-      if (this.checkWinCondition()) return;
+  // Inject elimination info into chat for context
+  if (eliminatedId) {
+    const role = store.allRoles?.[eliminatedId];
+    if (role) {
+      // We don't broadcast this to players (they see the reveal screen), 
+      // but we add it to the message store so bots "remember" it in their chat history context.
+      // Actually, let's just broadcast a system message about the role reveal so everyone has it in chat log.
+      const revealMsg = `${store.players[eliminatedId].name} was ${role}.`;
+      this.broadcastSystemMessage(revealMsg);
+    }
+  }
+
+  if (this.checkWinCondition()) return;
 
       // Start Elimination Reveal Phase
       const eliminationResult = { eliminatedId, resultText };
@@ -742,6 +907,7 @@ class NetworkManager {
           };
           this.broadcast(msg);
           store.setGameOver(winner, allRoles);
+          this.startBotChatLoop('game_over');
           return true;
       }
 
@@ -882,6 +1048,14 @@ class NetworkManager {
 
       case 'ROLE_ASSIGN':
         store.setMyRole(message.payload.role, message.payload.mafiaPartners);
+        break;
+
+      case 'TYPING':
+        const { isTyping } = message.payload;
+        store.setTypingPlayers({
+            ...store.typingPlayers,
+            [message.senderId]: isTyping
+        });
         break;
 
       case 'PHASE_CHANGE':

@@ -53,6 +53,39 @@ export default function DayPhase() {
             </div>
           )}
           <p className="text-slate-500 italic mb-8">"{lastNightResult}"</p>
+          
+          {phase === 'voting' && (
+             <div className="w-full bg-slate-950/50 p-6 rounded-xl border border-slate-800 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex items-center justify-center gap-2 mb-4">
+                    <Gavel className="text-slate-500" size={20} />
+                    <h3 className="text-lg font-bold text-slate-300">Live Voting Results</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                     {targets.map(p => {
+                        const count = voteCounts?.[p.id] || 0;
+                        if (count === 0) return null;
+                        return (
+                            <div key={p.id} className="bg-slate-900 p-3 rounded-lg border border-slate-800 flex justify-between items-center">
+                                <span className="text-slate-300 text-sm font-medium">{p.name}</span>
+                                <Badge variant="warning">{count} Votes</Badge>
+                            </div>
+                        );
+                     })}
+                     {voteCounts?.['SKIP'] ? (
+                        <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 flex justify-between items-center opacity-75">
+                             <span className="text-slate-400 text-sm italic">Skipped</span>
+                             <Badge variant="default">{voteCounts['SKIP']} Votes</Badge>
+                        </div>
+                     ) : null}
+                     {(!voteCounts || (Object.values(voteCounts).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) === 0)) && (
+                         <div className="col-span-full text-center text-slate-600 italic text-sm py-4">
+                             No votes cast yet...
+                         </div>
+                     )}
+                </div>
+             </div>
+          )}
+
           <div className="w-full">
             <Graveyard />
           </div>

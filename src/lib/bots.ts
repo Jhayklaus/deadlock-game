@@ -142,30 +142,49 @@ export async function getBotNightAction(
 }
 
 export async function getBotDayVote(
-  botId: PlayerId, 
+  botId: PlayerId,
   players: Record<PlayerId, Player>,
-  chatHistory: string = ""
+  chatHistory: string = "",
+  modeRole: string = ""
 ): Promise<PlayerId | null> {
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
   if (alivePlayers.length === 0) return null;
-  
+
   const botName = players[botId]?.name || 'Bot';
   const personality = botPersonalities.get(botName) || 'neutral';
   const targetsList = alivePlayers.map(p => p.name).join(', ');
 
+  // Mode-specific voting context
+  let roleContext = '';
+  if (modeRole === 'impostor') {
+    roleContext = 'You are the IMPOSTOR. You only know the category, not the secret word. Vote for someone who seems to know too much or might expose you. Avoid suspicion.';
+  } else if (modeRole === 'crewmate') {
+    roleContext = 'You are a CREWMATE. You know the secret word. Vote for the player who seems vague, uses wrong clues, or avoids giving a clear answer — they might be the impostor.';
+  } else if (modeRole === 'undercover') {
+    roleContext = 'You are UNDERCOVER. Your word is similar but different. Vote strategically to blend in. Avoid players who seem too similar to you.';
+  } else if (modeRole === 'blank') {
+    roleContext = 'You have NO WORD. You are guessing from context. Vote for whoever seems most confident — they likely know a word you don\'t.';
+  } else if (modeRole === 'common') {
+    roleContext = 'You are a COMMON player. You know the common word. Vote for anyone who gives clues that don\'t match the word.';
+  } else if (modeRole === 'frequency_spy') {
+    roleContext = 'You are the FREQUENCY SPY. Your number differs from the group. Vote to deflect suspicion — pick someone whose clues seem slightly off.';
+  } else if (modeRole === 'frequency_civilian') {
+    roleContext = 'You are a FREQUENCY CIVILIAN. Your number is close to the group. Vote for the player whose clues seem most off-frequency.';
+  }
+
   const prompt = `
     Name: ${botName}
     Personality: ${personality}
+    Role: ${modeRole || 'unknown'}
     Alive Players: ${targetsList}
     Chat Log:
     ${chatHistory}
-    
-    Role Guide:
-    ${ROLE_GUIDE}
+
+    ${roleContext ? `Role Context: ${roleContext}` : `Role Guide:\n${ROLE_GUIDE}`}
 
     Task: Vote to eliminate a player based on the chat.
     Output: The exact name of the player to vote for, or "SKIP" to abstain.
-    Rules: 
+    Rules:
     1. If you are unsure, you can SKIP.
     2. Respond with ONLY the name or SKIP.
   `;
@@ -186,11 +205,16 @@ export async function getBotChat(
   chatHistory: string,
   phase: string,
   allRoles: Record<PlayerId, Role> = {},
-  channel: 'global' | 'mafia' | 'dead' = 'global'
+  channel: 'global' | 'mafia' | 'dead' = 'global',
+  gameMode: string = 'classic_mafia',
+  modeRoles: Record<PlayerId, string> = {}
 ): Promise<string | null> {
   const botName = players[botId]?.name || 'Bot';
   const personality = botPersonalities.get(botName) || 'neutral';
-  const role = allRoles[botId] || 'unknown';
+  // Use mode role for non-classic modes, classic role otherwise
+  const modeRole = modeRoles[botId] || '';
+  const classicRole = allRoles[botId] || 'unknown';
+  const effectiveRole = gameMode !== 'classic_mafia' ? modeRole : classicRole;
 
   const deadPlayers = Object.values(players).filter(p => !p.isAlive).map(p => p.name).join(', ');
   const alivePlayers = Object.values(players).filter(p => p.isAlive).map(p => p.name).join(', ');
@@ -200,38 +224,73 @@ export async function getBotChat(
 
   // Role Honesty Logic
   let roleInstruction = "Don't reveal your exact role unless necessary.";
-  
+  let terminologyNote = '';
+
   if (channel === 'dead') {
-      roleInstruction = "You are DEAD. You are a spirit. Comment on the game from the afterlife. You can mock the living or root for your team. You cannot affect the game anymore.";
+    roleInstruction = "You are DEAD. Comment on the game from the afterlife. You can mock the living or root for your team.";
   } else if (channel === 'mafia') {
-      roleInstruction = "You are speaking in the SECRET MAFIA CHAT. Discuss with your fellow Mafia members. Decide who to kill or how to deceive the Town. Be conspiratorial.";
+    roleInstruction = "You are in the SECRET MAFIA CHAT. Discuss with your fellow Mafia members. Decide who to kill or how to deceive the Town.";
   } else {
-      // Global Chat Logic
-      if (phase === 'game_over') {
-          roleInstruction = "The game is over. Discuss the result. If you were Mafia, you can reveal it now and brag or complain. If you were Town, react to the outcome. Be gracious or salty based on your personality.";
-      } else {
-          // Roles aligned with Town/Civilians
-          if (['civilian', 'doctor', 'detective', 'bodyguard', 'vigilante', 'medium', 'mayor'].includes(role)) {
-              roleInstruction = "You are on the Civilian/Town team. Be honest about being a Civilian. Do NOT lie and claim to be Mafia. You want to eliminate the Mafia.";
-          } else if (role === 'mafia') {
-              roleInstruction = "You are MAFIA. You must deceive everyone. Pretend to be a Civilian. Do NOT reveal you are Mafia.";
-          }
+    if (phase === 'game_over') {
+      if (gameMode === 'classic_mafia') {
+        roleInstruction = "The game is over. If you were Mafia, reveal it and brag or complain. If you were Town, react to the outcome.";
+      } else if (gameMode === 'word_impostor') {
+        roleInstruction = `The game is over. ${effectiveRole === 'impostor' ? "You were the IMPOSTOR — you didn't know the secret word." : "You were a CREWMATE — you knew the secret word."} React accordingly.`;
+      } else if (gameMode === 'undercover') {
+        roleInstruction = `The game is over. ${effectiveRole === 'undercover' ? "You were UNDERCOVER — your word was different." : effectiveRole === 'blank' ? "You had NO WORD and were winging it." : "You had the COMMON word."} React accordingly.`;
+      } else if (gameMode === 'frequency_spy') {
+        roleInstruction = `The game is over. ${effectiveRole === 'frequency_spy' ? "You were the FREQUENCY SPY — your number was off from the group." : "You were a FREQUENCY CIVILIAN — you had the group's number."} React accordingly.`;
       }
+    } else if (gameMode === 'word_impostor') {
+      if (effectiveRole === 'impostor') {
+        roleInstruction = "You are the IMPOSTOR. You only know the category, not the secret word. Sound like you know the word. Give vague but plausible clues. Do NOT admit you don't know.";
+        terminologyNote = "Use terms like 'crewmate', 'impostor', 'category', 'word clue'.";
+      } else {
+        roleInstruction = "You are a CREWMATE. You know the secret word. Give subtle clues. Try to identify anyone whose clues seem off or too generic.";
+        terminologyNote = "Use terms like 'crewmate', 'impostor', 'category', 'word clue'.";
+      }
+    } else if (gameMode === 'undercover') {
+      if (effectiveRole === 'undercover') {
+        roleInstruction = "You are UNDERCOVER. Your word is similar but different to the common word. Sound like you fit in, but your clues must match YOUR word. Don't expose yourself.";
+        terminologyNote = "Use terms like 'undercover', 'common word', 'word', 'clue'.";
+      } else if (effectiveRole === 'blank') {
+        roleInstruction = "You have NO WORD. You must improvise entirely based on what others say. Listen carefully and mirror clues. Don't expose that you have nothing.";
+        terminologyNote = "Use terms like 'undercover', 'common word', 'blank'.";
+      } else {
+        roleInstruction = "You have the COMMON word. Give clues that describe it. Watch for anyone whose clues seem slightly off — they might be undercover or blank.";
+        terminologyNote = "Use terms like 'undercover', 'common word', 'clue'.";
+      }
+    } else if (gameMode === 'frequency_spy') {
+      if (effectiveRole === 'frequency_spy') {
+        roleInstruction = "You are the FREQUENCY SPY. Your secret number is different from everyone else's. Give a clue that sounds consistent with the group but actually describes your number. Don't get caught.";
+        terminologyNote = "Use terms like 'frequency', 'spectrum', 'signal', 'number clue'.";
+      } else {
+        roleInstruction = "You are a FREQUENCY CIVILIAN. Your number is close to the group average. Give clues that hint at your number on the spectrum. Watch for anyone whose clue seems wildly off.";
+        terminologyNote = "Use terms like 'frequency', 'spectrum', 'signal', 'number clue'.";
+      }
+    } else {
+      // Classic mafia
+      if (['civilian', 'doctor', 'detective', 'bodyguard', 'vigilante', 'medium', 'mayor'].includes(classicRole)) {
+        roleInstruction = "You are on the Town team. Be honest about being a Civilian. You want to eliminate the Mafia.";
+      } else if (classicRole === 'mafia') {
+        roleInstruction = "You are MAFIA. Deceive everyone. Pretend to be a Civilian. Do NOT reveal you are Mafia.";
+      }
+    }
   }
 
   const prompt = `
     Name: ${botName}
-    Role: ${role}
+    Role: ${effectiveRole || classicRole}
     Personality: ${personality}
+    Game Mode: ${gameMode}
     Phase: ${phase}
     Channel: ${channel}
     Alive Players: ${alivePlayers}
     Dead Players: ${deadPlayers || "None"}
     Chat Log:
     ${chatHistory}
-    
-    Role Guide (Terminology Source):
-    ${ROLE_GUIDE}
+
+    ${gameMode === 'classic_mafia' ? `Role Guide (Terminology Source):\n${ROLE_GUIDE}` : `Terminology: ${terminologyNote || 'Use natural game terminology for the mode.'}`}
 
     Instruction: ${roleInstruction}
     Task: Write a short chat message (max 15 words).
@@ -239,13 +298,9 @@ export async function getBotChat(
     1. Sound natural, like a human player.
     2. Don't reveal you are a bot.
     3. If the chat is empty, start a conversation.
-    4. IMPORTANT: Use ONLY the role names and terminology from the Role Guide above. 
-       - Do NOT use terms like "crewmate" or "impostor".
-       - Use "Civilian" instead of "villager".
-       - Use "Mafia" instead of "impostor".
-    5. React to the latest messages.
-    6. If the phase is 'game_over', discuss who won and the roles revealed.
-    7. Be aware of who is dead. Do not talk to them as if they are alive (unless you are also dead).
+    4. React to the latest messages.
+    5. If the phase is 'game_over', discuss who won and react to role reveals.
+    6. Be aware of who is dead. Do not talk to them as if they are alive (unless you are also dead).
     Output: Just the message text.
   `;
 

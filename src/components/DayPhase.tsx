@@ -5,6 +5,9 @@ import { networkManager } from '../lib/network';
 import ChatBox from './ChatBox';
 import LastWillEditor from './LastWillEditor';
 import Graveyard from './Graveyard';
+import WordImpostorDay from './WordImpostor/WordImpostorDay';
+import UndercoverDay from './Undercover/UndercoverDay';
+import FrequencySpyDay from './FrequencySpy/FrequencySpyDay';
 import { Skull, Sun, MessageSquare, Gavel, SkipForward, CheckCircle, User } from 'lucide-react';
 import MobileChatDrawer from './MobileChatDrawer';
 import { Card } from './ui/Card';
@@ -12,14 +15,15 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 
 export default function DayPhase() {
-  const { lastNightResult, players, myId, phase, isAlive, voteCounts, myDeathReason } = useGameStore(state => ({
+  const { lastNightResult, players, myId, phase, isAlive, voteCounts, myDeathReason, gameMode } = useGameStore(state => ({
     lastNightResult: state.lastNightResult,
     players: state.players,
     myId: state.myId,
     phase: state.phase,
     isAlive: state.players[state.myId]?.isAlive,
     voteCounts: state.voteCounts,
-    myDeathReason: state.myDeathReason
+    myDeathReason: state.myDeathReason,
+    gameMode: state.gameMode,
   }));
 
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
@@ -233,9 +237,19 @@ export default function DayPhase() {
         </div>
       </div>
 
-      {/* Chat Area (Hidden on mobile if using drawer, visible on desktop) */}
-      <div className="hidden lg:block lg:col-span-5 h-[600px] lg:h-auto sticky top-6">
-        <ChatBox />
+      {/* Right sidebar: mode panel + chat */}
+      <div className="hidden lg:flex lg:col-span-5 flex-col gap-4 sticky top-6 h-fit">
+        {/* Mode-specific info panel */}
+        {gameMode !== 'classic_mafia' && (
+          <Card variant="glass" className="p-4">
+            {gameMode === 'word_impostor' && <WordImpostorDay />}
+            {gameMode === 'undercover' && <UndercoverDay />}
+            {gameMode === 'frequency_spy' && <FrequencySpyDay />}
+          </Card>
+        )}
+        <div className="h-[520px]">
+          <ChatBox />
+        </div>
       </div>
 
       <MobileChatDrawer />

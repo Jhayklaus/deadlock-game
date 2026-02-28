@@ -2,6 +2,101 @@ export type PlayerId = string;
 
 export type Role = 'mafia' | 'detective' | 'doctor' | 'civilian' | 'vigilante' | 'mayor' | 'serial_killer' | 'jester' | 'bodyguard' | 'medium';
 
+// ─── v2: Game Mode System ─────────────────────────────────────────────────────
+
+export type UiScreen = 'mode_picker' | 'pre_join' | 'in_lobby' | 'in_game';
+
+export type GameModeId =
+  | 'classic_mafia'
+  | 'word_impostor'
+  | 'undercover'
+  | 'frequency_spy';
+
+export type ModeRoleId =
+  | Role
+  | 'crewmate'           // word_impostor: knows the word
+  | 'impostor'           // word_impostor: knows only the category
+  | 'common'             // undercover: has the common word
+  | 'undercover'         // undercover: has the undercover word
+  | 'blank'              // undercover: has no word at all
+  | 'frequency_civilian' // frequency_spy: has the target number
+  | 'frequency_spy';     // frequency_spy: has a divergent number
+
+export interface WinResult {
+  readonly winnerId: string;
+  readonly winnerLabel: string;
+  readonly description: string;
+}
+
+// JSON-serialisable — never contains functions or class instances
+export type PlayerPayload = Record<string, string | number | boolean | null | string[]>;
+export type HostPrivateState = Record<string, string | number | boolean | null | string[] | Record<string, string | number>>;
+
+export interface PhaseAction {
+  readonly senderId: PlayerId;
+  readonly type: string;
+  readonly payload: Record<string, string | number | boolean | null>;
+}
+
+export interface GameModeDefinition {
+  readonly id: GameModeId;
+  readonly name: string;
+  readonly description: string;
+  readonly minPlayers: number;
+  readonly maxPlayers: number;
+  readonly phases: ReadonlyArray<GamePhase>;
+
+  distributeRoles(
+    playerIds: ReadonlyArray<PlayerId>,
+    settings: GameSettings
+  ): Record<PlayerId, ModeRoleId>;
+
+  /**
+   * SECRECY ENFORCEMENT POINT.
+   * Returns per-player payloads (Host sends each only their own entry)
+   * and hostPrivateState (never forwarded to any client).
+   */
+  buildGameStartData(
+    playerIds: ReadonlyArray<PlayerId>,
+    roles: Record<PlayerId, ModeRoleId>,
+    settings: GameSettings
+  ): {
+    readonly perPlayerPayloads: Record<PlayerId, PlayerPayload>;
+    readonly hostPrivateState: HostPrivateState;
+  };
+
+  getNextPhase(
+    currentPhase: GamePhase,
+    hostPrivateState: HostPrivateState,
+    players: Record<PlayerId, Player>
+  ): GamePhase;
+
+  processAction(
+    action: PhaseAction,
+    currentPhase: GamePhase,
+    players: Record<PlayerId, Player>,
+    hostPrivateState: HostPrivateState
+  ): HostPrivateState;
+
+  resolvePhase(
+    phase: GamePhase,
+    players: Record<PlayerId, Player>,
+    hostPrivateState: HostPrivateState
+  ): {
+    readonly publicPayload: Record<string, string | number | boolean | null>;
+    readonly perPlayerPayloads?: Record<PlayerId, PlayerPayload>;
+    readonly updatedPrivateState: HostPrivateState;
+  };
+
+  checkWinCondition(
+    players: Record<PlayerId, Player>,
+    hostPrivateState: HostPrivateState,
+    lastAction?: PhaseAction
+  ): WinResult | null;
+}
+
+// ─── End v2 additions ─────────────────────────────────────────────────────────
+
 // Public player info (synced to everyone)
 export interface Player {
   id: PlayerId;
@@ -16,7 +111,15 @@ export interface Player {
   lastWill?: string;
 }
 
-export type GamePhase = 'lobby' | 'role_assignment' | 'night' | 'day_discussion' | 'voting' | 'elimination_reveal' | 'game_over';
+export type GamePhase =
+  | 'lobby'
+  | 'role_assignment'
+  | 'night'
+  | 'day_discussion'
+  | 'voting'
+  | 'elimination_reveal'
+  | 'impostor_guess'   // v2: word_impostor — voted-out impostor guesses the word
+  | 'game_over';
 
 export interface GameState {
   hostId: PlayerId | null;
@@ -38,9 +141,27 @@ export interface GameState {
   allRoles: Record<PlayerId, Role> | null;
   settings: GameSettings;
   messages: ChatMessage[];
-  timerEnd: number | null; // Timestamp for when the current phase ends
+  timerEnd: number | null;
   myDeathReason: string | null;
   typingPlayers: Record<PlayerId, boolean>;
+  // v2: game mode fields
+  gameMode: GameModeId;
+  myModeRoleId: ModeRoleId | null;
+  myAssignedWord: string | null;       // word_impostor / undercover: word for crewmates, null for impostors
+  myAssignedCategory: string | null;  // word_impostor: category hint shown to everyone
+  myAssignedNumber: number | null;     // frequency_spy: the player's secret number
+  myCommonWord: string | null;         // undercover common word (for blank player context)
+  wordGuessResult: { guess: string; correct: boolean } | null;
+  impostorGuessPlayerId: PlayerId | null; // word_impostor: who is currently guessing
+  // v2 UI navigation
+  uiScreen: UiScreen;
+  selectedMode: GameModeId; // mode chosen on ModePicker (host flow only)
+  // v2 mode game-over fields (stored so GameOver screens can display them)
+  modeWinnerId: string | null;
+  modeWinnerLabel: string | null;
+  modeWinnerDescription: string | null;
+  // v2 mode roles revealed at game over (for all players)
+  allModeRoles: Record<PlayerId, string>;
 }
 
 export interface GameSettings {
@@ -73,11 +194,11 @@ export interface ChatMessage {
 }
 
 // Network Message Types
-export type MessageType = 
-  | 'JOIN' 
-  | 'WELCOME' 
-  | 'PLAYER_UPDATE' 
-  | 'GAME_START' 
+export type MessageType =
+  | 'JOIN'
+  | 'WELCOME'
+  | 'PLAYER_UPDATE'
+  | 'GAME_START'
   | 'ROLE_ASSIGN'
   | 'NIGHT_ACTION'
   | 'PHASE_CHANGE'
@@ -90,7 +211,10 @@ export type MessageType =
   | 'WHISPER'
   | 'DEATH_INFO'
   | 'KICK_PLAYER'
-  | 'TYPING';
+  | 'TYPING'
+  | 'MODE_ASSIGN'   // v2: per-player mode payload (sent individually, never broadcast)
+  | 'MODE_ACTION'   // v2: player → host generic action
+  | 'MODE_RESULT';  // v2: host → all result broadcast
 
 export interface BaseMessage {
   type: MessageType;
@@ -114,6 +238,7 @@ export interface WelcomeMessage extends BaseMessage {
     players: Record<PlayerId, Player>;
     phase: GamePhase;
     settings: GameSettings;
+    gameMode: GameModeId;
   };
 }
 
@@ -126,6 +251,7 @@ export interface GameStartMessage extends BaseMessage {
   type: 'GAME_START';
   payload: {
     settings: GameSettings;
+    gameMode: GameModeId;
   };
 }
 
@@ -211,10 +337,40 @@ export interface TypingMessage extends BaseMessage {
   };
 }
 
-export type NetworkMessage = 
-  | JoinMessage 
-  | WelcomeMessage 
-  | PlayerUpdateMessage 
+// v2 messages ─────────────────────────────────────────────────────────────────
+
+export interface ModeAssignMessage extends BaseMessage {
+  type: 'MODE_ASSIGN';
+  payload: {
+    modeId: GameModeId;
+    modeRoleId: ModeRoleId;
+    assignedWord: string | null;
+    assignedCategory: string | null;
+    assignedNumber: number | null;
+    commonWord: string | null;
+  };
+}
+
+export interface ModeActionMessage extends BaseMessage {
+  type: 'MODE_ACTION';
+  payload: {
+    actionType: string;
+    actionPayload: Record<string, string | number | boolean | null>;
+  };
+}
+
+export interface ModeResultMessage extends BaseMessage {
+  type: 'MODE_RESULT';
+  payload: {
+    resultType: string;
+    publicPayload: Record<string, string | number | boolean | null>;
+  };
+}
+
+export type NetworkMessage =
+  | JoinMessage
+  | WelcomeMessage
+  | PlayerUpdateMessage
   | GameStartMessage
   | RoleAssignMessage
   | NightActionMessage
@@ -228,4 +384,7 @@ export type NetworkMessage =
   | WhisperMessage
   | DeathInfoMessage
   | KickPlayerMessage
-  | TypingMessage;
+  | TypingMessage
+  | ModeAssignMessage
+  | ModeActionMessage
+  | ModeResultMessage;

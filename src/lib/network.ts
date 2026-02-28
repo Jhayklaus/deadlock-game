@@ -1,9 +1,12 @@
 import { io, Socket } from 'socket.io-client';
 import { useGameStore } from './store';
-import { NetworkMessage, Player, PlayerId, GamePhase } from './types';
+import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId } from './types';
 import { distributeRoles } from './gameLogic';
 import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from './bots';
 import { soundManager } from './sound';
+import { getMode } from '../modes/registry';
+// Side-effect import: registers all game modes into the registry
+import '../modes/index';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
@@ -15,7 +18,13 @@ function generateShortId(): string {
 class NetworkManager {
   private socket: Socket | null = null;
   // allRoles moved to Store
-  
+
+  // v2: active mode private state (Host only — NEVER forwarded to clients)
+  private activeModeId: GameModeId = 'classic_mafia';
+  private hostPrivateState: HostPrivateState = {};
+  // All player mode roles (host only, used for bot AI context + game-over reveal)
+  private modeRoles: Record<PlayerId, string> = {};
+
   // Host state for night actions
   private nightActions: {
     mafiaVote: Record<PlayerId, PlayerId>; // voterId -> targetId
@@ -117,23 +126,288 @@ class NetworkManager {
   }
 
   private handlePhaseTimeout(phase: GamePhase) {
-      switch (phase) {
-          case 'role_assignment':
-              this.startNightPhase();
-              break;
-          case 'night':
-              this.resolveNightPhase();
-              break;
-          case 'day_discussion':
-              this.startVotingPhase();
-              break;
-          case 'voting':
-              this.resolveVotingPhase();
-              break;
-          case 'elimination_reveal':
-              this.startNightPhase();
-              break;
+      if (this.activeModeId === 'classic_mafia') {
+          // ── Classic Mafia: original hardcoded phase transitions ────────────
+          switch (phase) {
+              case 'role_assignment':
+                  this.startNightPhase();
+                  break;
+              case 'night':
+                  this.resolveNightPhase();
+                  break;
+              case 'day_discussion':
+                  this.startVotingPhase();
+                  break;
+              case 'voting':
+                  this.resolveVotingPhase();
+                  break;
+              case 'elimination_reveal':
+                  this.startNightPhase();
+                  break;
+          }
+      } else {
+          // ── Non-classic modes: mode-driven transitions ────────────────────
+          switch (phase) {
+              case 'role_assignment':
+                  this.startModeDayPhase();
+                  break;
+              case 'day_discussion':
+                  this.startVotingPhase();
+                  break;
+              case 'voting':
+                  this.resolveModeVotingPhase();
+                  break;
+              case 'impostor_guess':
+                  this.resolveModeImpostorGuess();
+                  break;
+              case 'elimination_reveal':
+                  this.endModeGame();
+                  break;
+          }
       }
+  }
+
+  // ── Non-classic mode phase helpers ──────────────────────────────────────────
+
+  private startModeDayPhase() {
+      const store = useGameStore.getState();
+      const duration = store.settings.discussionDuration * 1000;
+      const timerEnd = Date.now() + duration;
+
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'day_discussion', timerEnd }
+      });
+      store.setPhase('day_discussion');
+      store.setTimerEnd(timerEnd);
+      this.startBotChatLoop('day');
+      setTimeout(() => this.handlePhaseTimeout('day_discussion'), duration);
+  }
+
+  private resolveModeVotingPhase() {
+      const store = useGameStore.getState();
+      const players = store.players;
+
+      // Tally votes
+      const voteCounts: Record<string, number> = {};
+      let skipVotes = 0;
+
+      Object.values(this.dayVotes).forEach(tid => {
+          if (tid) {
+              voteCounts[tid] = (voteCounts[tid] || 0) + 1;
+          } else {
+              skipVotes++;
+          }
+      });
+
+      const alivePlayers = Object.values(players).filter(p => p.isAlive);
+      skipVotes += alivePlayers.length - Object.keys(this.dayVotes).length;
+
+      let maxVotes = 0;
+      let winners: string[] = [];
+
+      Object.entries(voteCounts).forEach(([id, count]) => {
+          if (count > maxVotes) { maxVotes = count; winners = [id]; }
+          else if (count === maxVotes) { winners.push(id); }
+      });
+
+      if (skipVotes > maxVotes) { maxVotes = skipVotes; winners = ['SKIP']; }
+      else if (skipVotes === maxVotes) { winners.push('SKIP'); }
+
+      let eliminatedId: string | null = null;
+      let resultText = '';
+
+      if (winners.length === 1 && winners[0] !== 'SKIP') {
+          eliminatedId = winners[0];
+          const name = players[eliminatedId]?.name ?? 'Unknown';
+          resultText = `The group has decided to eliminate ${name}.`;
+          store.updatePlayer(eliminatedId, { isAlive: false });
+          this.broadcastPlayerUpdate();
+          this.broadcastSystemMessage(resultText);
+      } else {
+          resultText = 'No one was voted out.';
+          this.broadcastSystemMessage(resultText);
+      }
+
+      // Check mode win condition
+      const mode = getMode(this.activeModeId);
+      const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
+
+      if (winResult) {
+          this.broadcastModeGameOver(winResult.winnerId, winResult.winnerLabel, winResult.description);
+          return;
+      }
+
+      // Word Impostor: if impostor was voted out → impostor_guess phase
+      if (this.activeModeId === 'word_impostor' && eliminatedId) {
+          const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+          if (impostorIds.includes(eliminatedId)) {
+              // Impostor voted out — give them a guess
+              this.startImpostorGuessPhase(eliminatedId);
+              return;
+          } else {
+              // Innocent eliminated — impostor wins
+              const secretWord = String(this.hostPrivateState.secretWord ?? '');
+              this.broadcastSystemMessage(`An innocent player was eliminated! The secret word was "${secretWord}". The Impostor wins!`);
+              this.broadcastModeGameOver('impostor', 'The Impostor', 'An innocent player was eliminated.');
+              return;
+          }
+      }
+
+      // Default: show elimination_reveal then end
+      const eliminationResult = { eliminatedId, resultText };
+      const duration = 6000;
+      const timerEnd = Date.now() + duration;
+
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'elimination_reveal', payload: { eliminationResult }, timerEnd }
+      });
+      store.setPhase('elimination_reveal');
+      store.setEliminationResult(eliminationResult);
+      store.setTimerEnd(timerEnd);
+      setTimeout(() => this.handlePhaseTimeout('elimination_reveal'), duration);
+  }
+
+  private startImpostorGuessPhase(impostorId: string) {
+      const store = useGameStore.getState();
+      const duration = 45000; // 45 seconds to guess
+      const timerEnd = Date.now() + duration;
+
+      store.setImpostorGuessPlayerId(impostorId);
+      this.broadcastSystemMessage(
+          `${store.players[impostorId]?.name ?? 'The Impostor'} was voted out! They have 45 seconds to guess the secret word.`
+      );
+
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: {
+              phase: 'impostor_guess',
+              timerEnd,
+              payload: { impostorGuessPlayerId: impostorId }
+          }
+      });
+      store.setPhase('impostor_guess');
+      store.setTimerEnd(timerEnd);
+      setTimeout(() => this.handlePhaseTimeout('impostor_guess'), duration);
+  }
+
+  resolveModeImpostorGuess() {
+      const store = useGameStore.getState();
+      // If timer expired without a guess, treat as wrong
+      if (this.hostPrivateState.impostorGuess === undefined) {
+          this.hostPrivateState = { ...this.hostPrivateState, impostorGuess: '', guessCorrect: false };
+      }
+
+      const correct = Boolean(this.hostPrivateState.guessCorrect);
+      const secretWord = String(this.hostPrivateState.secretWord ?? '');
+      const guess = String(this.hostPrivateState.impostorGuess ?? '(no guess)');
+
+      const resultText = correct
+          ? `The Impostor guessed correctly! The word was "${secretWord}". Impostor wins!`
+          : `Time's up! The Impostor guessed "${guess}" but the word was "${secretWord}". Crewmates win!`;
+
+      this.broadcastSystemMessage(resultText);
+
+      // Broadcast result to all clients
+      this.broadcast({
+          type: 'MODE_RESULT',
+          senderId: store.myId,
+          payload: {
+              resultType: 'impostor_guess_result',
+              publicPayload: { guess, correct, secretWord, resultText }
+          }
+      });
+      store.setWordGuessResult({ guess, correct });
+
+      if (correct) {
+          this.broadcastModeGameOver('impostor', 'The Impostor', `Guessed the secret word "${secretWord}"!`);
+      } else {
+          this.broadcastModeGameOver('crewmates', 'The Crewmates', `The Impostor failed to guess the word.`);
+      }
+  }
+
+  /** Public: called by ImpostorGuess UI component */
+  submitImpostorGuess(guess: string) {
+      const store = useGameStore.getState();
+      if (store.phase !== 'impostor_guess') return;
+
+      const trimmedGuess = guess.trim().toLowerCase();
+
+      if (store.myId === store.hostId) {
+          // Host is the impostor (unlikely but possible)
+          this.processImpostorGuess(store.myId, trimmedGuess);
+      } else {
+          this.sendMessage(store.hostId!, {
+              type: 'MODE_ACTION',
+              senderId: store.myId,
+              payload: {
+                  actionType: 'IMPOSTOR_GUESS',
+                  actionPayload: { guess: trimmedGuess }
+              }
+          });
+      }
+  }
+
+  private processImpostorGuess(senderId: string, guess: string) {
+      const store = useGameStore.getState();
+      const impostorGuessPlayerId = store.impostorGuessPlayerId;
+
+      // Only accept from the designated impostor
+      if (senderId !== impostorGuessPlayerId) return;
+
+      const secretWord = String(this.hostPrivateState.secretWord ?? '').toLowerCase();
+      const correct = guess === secretWord;
+
+      this.hostPrivateState = { ...this.hostPrivateState, impostorGuess: guess, guessCorrect: correct };
+
+      // Resolve immediately on guess (don't wait for timer)
+      this.resolveModeImpostorGuess();
+  }
+
+  private endModeGame() {
+      const store = useGameStore.getState();
+      const mode = getMode(this.activeModeId);
+      const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
+
+      if (winResult) {
+          this.broadcastModeGameOver(winResult.winnerId, winResult.winnerLabel, winResult.description);
+      } else {
+          this.broadcastModeGameOver('draw', 'Nobody', 'The game ended without a winner.');
+      }
+  }
+
+  private broadcastModeGameOver(winnerId: string, winnerLabel: string, description: string) {
+      const store = useGameStore.getState();
+      this.broadcastSystemMessage(`Game Over — ${winnerLabel} win! ${description}`);
+
+      // Reveal all words / numbers in host private state
+      const revealPayload: Record<string, string | number | boolean | null> = {
+          winnerId,
+          winnerLabel,
+          description,
+          secretWord: (this.hostPrivateState.secretWord as string | null) ?? null,
+          secretCategory: (this.hostPrivateState.secretCategory as string | null) ?? null,
+          targetNumber: (this.hostPrivateState.targetNumber as number | null) ?? null,
+          spyNumber: (this.hostPrivateState.spyNumber as number | null) ?? null,
+          commonWord: (this.hostPrivateState.commonWord as string | null) ?? null,
+          undercoverWord: (this.hostPrivateState.undercoverWord as string | null) ?? null,
+          // Include all player roles for game-over reveal
+          rolesJson: JSON.stringify(this.modeRoles),
+      };
+
+      this.broadcast({
+          type: 'MODE_RESULT',
+          senderId: store.myId,
+          payload: { resultType: 'game_over', publicPayload: revealPayload }
+      });
+
+      store.setModeGameOver(winnerId, winnerLabel, description);
+      store.setAllModeRoles(this.modeRoles);
+      this.startBotChatLoop('game_over');
   }
 
   disconnect() {
@@ -188,35 +462,49 @@ class NetworkManager {
     this.socket.emit('join_game', { hostId, playerName });
   }
 
+  /** Host calls this from the Lobby to change the selected mode. */
+  setGameMode(modeId: GameModeId) {
+    const store = useGameStore.getState();
+    if (store.myId !== store.hostId) return;
+    store.setGameMode(modeId);
+    this.activeModeId = modeId;
+  }
+
   startGame() {
     const store = useGameStore.getState();
     if (store.myId !== store.hostId) return;
 
+    this.activeModeId = store.gameMode;
+
     // Reset game state
-    this.nightActions = { 
-        mafiaVote: {}, 
-        doctorTargets: {}, 
-        detectiveTargets: {}, 
-        vigilanteTargets: {}, 
+    this.nightActions = {
+        mafiaVote: {},
+        doctorTargets: {},
+        detectiveTargets: {},
+        vigilanteTargets: {},
         serialKillerTargets: {},
         bodyguardTargets: {}
     };
     this.dayVotes = {};
     this.lastWills = {};
+    this.hostPrivateState = {};
     store.setVoteCounts({});
     store.setLastNightResult('');
-    store.setAllRoles({}); // clear roles
+    store.setAllRoles({});
+    store.clearMessages();
+    this.modeRoles = {};
 
-    // Notify all players
+    // Notify all players (include gameMode so peers update their store)
     const msg: NetworkMessage = {
         type: 'GAME_START',
         senderId: store.myId,
         payload: {
-            settings: store.settings
+            settings: store.settings,
+            gameMode: store.gameMode,
         }
     };
     this.broadcast(msg);
-    
+
     // Start Role Assignment
     this.assignRoles();
   }
@@ -224,36 +512,107 @@ class NetworkManager {
   private assignRoles() {
       const store = useGameStore.getState();
       const players = Object.values(store.players);
-      const roles = distributeRoles(players.map(p => p.id), store.settings);
-      
-      store.setAllRoles(roles);
+      const playerIds = players.map(p => p.id);
 
-      // Send roles to each player
-      players.forEach(player => {
-          if (player.isBot) return; // Bots are handled locally by host
+      if (this.activeModeId === 'classic_mafia') {
+          // ── Classic Mafia path (unchanged) ───────────────────────────────
+          const roles = distributeRoles(playerIds, store.settings);
+          store.setAllRoles(roles);
+          this.modeRoles = roles as Record<PlayerId, string>;
 
-          const role = roles[player.id];
-          const mafiaPartners = role === 'mafia' 
-              ? Object.entries(roles).filter(([_, r]) => r === 'mafia').map(([id]) => id)
-              : undefined;
+          players.forEach(player => {
+              if (player.isBot) return;
+              const role = roles[player.id];
+              const mafiaPartners = role === 'mafia'
+                  ? Object.entries(roles).filter(([_, r]) => r === 'mafia').map(([id]) => id)
+                  : undefined;
 
-          const msg: NetworkMessage = {
-              type: 'ROLE_ASSIGN',
-              senderId: store.myId,
-              payload: { role, mafiaPartners }
-          };
-          
-          if (player.id === store.myId) {
-              store.setMyRole(role, mafiaPartners);
-          } else {
-              this.sendMessage(player.id, msg);
-          }
-      });
+              if (player.id === store.myId) {
+                  store.setMyRole(role, mafiaPartners);
+                  store.setModeAssign({
+                      modeRoleId: role,
+                      assignedWord: null,
+                      assignedCategory: null,
+                      assignedNumber: null,
+                      commonWord: null,
+                  });
+              } else {
+                  this.sendMessage(player.id, {
+                      type: 'ROLE_ASSIGN',
+                      senderId: store.myId,
+                      payload: { role, mafiaPartners }
+                  });
+                  this.sendMessage(player.id, {
+                      type: 'MODE_ASSIGN',
+                      senderId: store.myId,
+                      payload: {
+                          modeId: 'classic_mafia',
+                          modeRoleId: role,
+                          assignedWord: null,
+                          assignedCategory: null,
+                          assignedNumber: null,
+                          commonWord: null,
+                      }
+                  });
+              }
+          });
+      } else {
+          // ── Non-classic mode path ────────────────────────────────────────
+          const mode = getMode(this.activeModeId);
+          const modeRoles = mode.distributeRoles(playerIds, store.settings);
+          this.modeRoles = modeRoles as Record<PlayerId, string>;
+
+          // Build the per-player payloads + private host state
+          const { perPlayerPayloads, hostPrivateState } = mode.buildGameStartData(
+              playerIds, modeRoles, store.settings
+          );
+          // Store private state on Host — NEVER broadcast
+          this.hostPrivateState = hostPrivateState;
+
+          players.forEach(player => {
+              if (player.isBot) return;
+              const payload = perPlayerPayloads[player.id];
+              if (!payload) return;
+
+              const modeRoleId = payload.modeRoleId as ModeRoleId;
+
+              if (player.id === store.myId) {
+                  // For frequency spy, map topic/labels into word/category fields
+                  let resolvedWord = payload.assignedWord as string | null;
+                  let resolvedCategory = payload.assignedCategory as string | null;
+                  if (this.activeModeId === 'frequency_spy' && payload.frequencyTopic) {
+                      resolvedWord = payload.frequencyTopic as string;
+                      resolvedCategory = `${payload.frequencyLowLabel}|${payload.frequencyHighLabel}`;
+                  }
+                  store.setModeAssign({
+                      modeRoleId,
+                      assignedWord: resolvedWord,
+                      assignedCategory: resolvedCategory,
+                      assignedNumber: payload.assignedNumber as number | null,
+                      commonWord: payload.commonWord as string | null,
+                  });
+              } else {
+                  // Send MODE_ASSIGN individually — each player gets only their payload
+                  this.sendMessage(player.id, {
+                      type: 'MODE_ASSIGN',
+                      senderId: store.myId,
+                      payload: {
+                          modeId: this.activeModeId,
+                          modeRoleId,
+                          assignedWord: payload.assignedWord as string | null,
+                          assignedCategory: payload.assignedCategory as string | null,
+                          assignedNumber: payload.assignedNumber as number | null,
+                          commonWord: payload.commonWord as string | null,
+                      }
+                  });
+              }
+          });
+      }
 
       // Transition to Role Assignment Phase
-      const duration = 5000; // 5 seconds to view role
+      const duration = 5000;
       const timerEnd = Date.now() + duration;
-      
+
       const phaseMsg: NetworkMessage = {
           type: 'PHASE_CHANGE',
           senderId: store.myId,
@@ -357,7 +716,7 @@ class NetworkManager {
             .map(m => `${m.senderName}: ${m.content}`)
             .join('\n');
 
-          const message = await getBotChat(bot.id, store.players, chatHistory, store.phase, store.allRoles || {}, option.channel);
+          const message = await getBotChat(bot.id, store.players, chatHistory, store.phase, store.allRoles || {}, option.channel, this.activeModeId, this.modeRoles);
           
           // Stop typing
           this.broadcastBotTyping(bot.id, false);
@@ -704,7 +1063,8 @@ class NetworkManager {
               // Re-check alive status
               if (!store.players[bot.id]?.isAlive) return;
 
-              const targetId = await getBotDayVote(bot.id, store.players, chatHistory);
+              const modeRole = this.modeRoles[bot.id] || '';
+              const targetId = await getBotDayVote(bot.id, store.players, chatHistory, modeRole);
               this.processVote(bot.id, targetId);
           }, delay);
       });
@@ -994,7 +1354,8 @@ class NetworkManager {
               hostId: store.myId,
               players: store.players,
               phase: store.phase,
-              settings: store.settings
+              settings: store.settings,
+              gameMode: store.gameMode,
             }
           });
 
@@ -1032,6 +1393,7 @@ class NetworkManager {
         store.setPlayers(message.payload.players);
         store.setPhase(message.payload.phase);
         store.setSettings(message.payload.settings);
+        store.setGameMode(message.payload.gameMode ?? 'classic_mafia');
         break;
 
       case 'PLAYER_UPDATE':
@@ -1040,10 +1402,12 @@ class NetworkManager {
 
       case 'GAME_START':
         store.setSettings(message.payload.settings);
+        store.setGameMode(message.payload.gameMode ?? 'classic_mafia');
+        this.activeModeId = message.payload.gameMode ?? 'classic_mafia';
         store.setPhase('role_assignment');
-        // Clean up state
         store.setLastNightResult('');
         store.setVoteCounts({});
+        store.clearMessages();
         break;
 
       case 'ROLE_ASSIGN':
@@ -1077,6 +1441,9 @@ class NetworkManager {
             }
             if (message.payload.payload?.eliminationResult) {
                 store.setEliminationResult(message.payload.payload.eliminationResult);
+            }
+            if (message.payload.payload?.impostorGuessPlayerId) {
+                store.setImpostorGuessPlayerId(message.payload.payload.impostorGuessPlayerId);
             }
             if (message.payload.timerEnd) {
               store.setTimerEnd(message.payload.timerEnd);
@@ -1230,6 +1597,82 @@ class NetworkManager {
             store.resetSession();
             store.setError("You have been kicked by the host.");
             break;
+
+        // ── v2 message handlers ──────────────────────────────────────────────
+
+        case 'MODE_ASSIGN': {
+            store.setGameMode(message.payload.modeId);
+            // For frequency_spy, frequencyTopic is stored in assignedWord field
+            // and low/high labels are stored in assignedCategory (pipe-separated).
+            // This avoids adding more optional fields to the generic store.
+            const p = message.payload;
+            let resolvedWord = p.assignedWord;
+            let resolvedCategory = p.assignedCategory;
+            if (p.modeId === 'frequency_spy' && (p as unknown as Record<string, unknown>).frequencyTopic) {
+                const fp = p as unknown as {
+                    frequencyTopic: string;
+                    frequencyLowLabel: string;
+                    frequencyHighLabel: string;
+                };
+                resolvedWord = fp.frequencyTopic;
+                resolvedCategory = `${fp.frequencyLowLabel}|${fp.frequencyHighLabel}`;
+            }
+            store.setModeAssign({
+                modeRoleId: p.modeRoleId,
+                assignedWord: resolvedWord,
+                assignedCategory: resolvedCategory,
+                assignedNumber: p.assignedNumber,
+                commonWord: p.commonWord,
+            });
+            break;
+        }
+
+        case 'MODE_ACTION':
+            if (store.myId === store.hostId) {
+                const { actionType, actionPayload } = message.payload;
+                if (actionType === 'IMPOSTOR_GUESS') {
+                    const guess = String(actionPayload.guess ?? '').trim().toLowerCase();
+                    this.processImpostorGuess(message.senderId, guess);
+                }
+            }
+            break;
+
+        case 'MODE_RESULT': {
+            const { resultType, publicPayload } = message.payload;
+            if (resultType === 'impostor_guess_result') {
+                store.setWordGuessResult({
+                    guess: String(publicPayload.guess ?? ''),
+                    correct: Boolean(publicPayload.correct),
+                });
+            }
+            if (resultType === 'game_over') {
+                // Reveal info is available for the GameOver screen
+                // The phase transition is handled by MODE_RESULT → setModeGameOver
+                store.setModeGameOver(
+                    String(publicPayload.winnerId ?? ''),
+                    String(publicPayload.winnerLabel ?? ''),
+                    String(publicPayload.description ?? ''),
+                );
+                // Parse and store all player mode roles for game-over reveal
+                if (publicPayload.rolesJson) {
+                    try {
+                        const roles = JSON.parse(String(publicPayload.rolesJson));
+                        store.setAllModeRoles(roles);
+                    } catch { /* ignore malformed json */ }
+                }
+                // Stash revealed word/numbers for game-over display
+                if (publicPayload.secretWord) {
+                    store.setModeAssign({
+                        modeRoleId: store.myModeRoleId ?? 'crewmate',
+                        assignedWord: String(publicPayload.secretWord),
+                        assignedCategory: store.myAssignedCategory,
+                        assignedNumber: store.myAssignedNumber,
+                        commonWord: publicPayload.commonWord ? String(publicPayload.commonWord) : null,
+                    });
+                }
+            }
+            break;
+        }
     }
   }
 

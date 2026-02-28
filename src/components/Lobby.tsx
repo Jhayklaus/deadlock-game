@@ -3,6 +3,7 @@ import { networkManager } from '../lib/network';
 import { useGameStore } from '../lib/store';
 import { clsx } from 'clsx';
 import GameSettingsUI from './GameSettingsUI';
+import ModeSelector from './ModeSelector/ModeSelector';
 import { Users, Copy, Check, Play, Server, Bot, Crown, ArrowRight, ShieldAlert, X, Settings } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
@@ -204,8 +205,16 @@ export default function Lobby() {
                             <h3 className="text-slate-200 font-bold mb-1">Lobby Controls</h3>
                             <p className="text-xs text-slate-500">Manage your game session</p>
                         </div>
-                        
-                        <Button 
+
+                        <ModeSelector isHost={isHost} />
+
+                        <div className="relative py-1">
+                            <div className="absolute inset-0 flex items-center">
+                                <div className="w-full border-t border-slate-800"></div>
+                            </div>
+                        </div>
+
+                        <Button
                             variant="secondary"
                             className="w-full flex items-center justify-center gap-3"
                             onClick={() => networkManager.addBot()}
@@ -252,15 +261,19 @@ export default function Lobby() {
                         )}
                     </div>
                     ) : (
-                    <div className="text-center py-8 px-4">
-                        <div className="relative mx-auto w-20 h-20 mb-6 flex items-center justify-center">
-                            <div className="absolute inset-0 bg-red-500/20 rounded-full animate-ping"></div>
-                            <div className="relative bg-slate-950 p-4 rounded-full border border-slate-800 z-10">
-                                <Server size={32} className="text-red-500" />
+                    <div className="py-4 px-2 space-y-6">
+                        <div className="text-center">
+                            <div className="relative mx-auto w-16 h-16 mb-4 flex items-center justify-center">
+                                <div className="absolute inset-0 bg-red-500/20 rounded-full animate-ping"></div>
+                                <div className="relative bg-slate-950 p-3 rounded-full border border-slate-800 z-10">
+                                    <Server size={24} className="text-red-500" />
+                                </div>
                             </div>
+                            <h3 className="text-lg font-bold text-slate-200 mb-1">Waiting for Host</h3>
+                            <p className="text-slate-400 text-sm">The game will begin once the host starts the session.</p>
                         </div>
-                        <h3 className="text-xl font-bold text-slate-200 mb-2">Waiting for Host</h3>
-                        <p className="text-slate-400 text-sm mb-6">The game will begin once the host starts the session.</p>
+
+                        <ModeSelector isHost={false} />
                         
                         <div className="xl:hidden mb-6">
                              <Button 

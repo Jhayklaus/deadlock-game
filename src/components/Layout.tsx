@@ -4,21 +4,35 @@ import { networkManager } from '../lib/network';
 import Timer from './Timer';
 import CheatSheet from './CheatSheet';
 import { LogOut, AlertTriangle, X, Crown } from 'lucide-react';
+import type { GameModeId } from '../lib/types';
+
+const MODE_TITLE: Record<GameModeId, { name: string; sub: string; fontClass: string; accentClass: string }> = {
+  classic_mafia: { name: 'MAFIEUX', sub: 'Trust No One', fontClass: 'font-creepster', accentClass: 'text-red-600' },
+  word_impostor: { name: 'IMPOSTOR', sub: 'Find the Fake', fontClass: 'font-playfair', accentClass: 'text-violet-400' },
+  undercover: { name: 'UNDERCOVER', sub: 'Blend In', fontClass: 'font-oswald', accentClass: 'text-amber-400' },
+  frequency_spy: { name: 'FREQUENCY', sub: 'Find the Outlier', fontClass: 'font-share-tech', accentClass: 'text-cyan-400' },
+};
 
 interface LayoutProps {
   children: ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { error, hostId } = useGameStore(state => ({
+  const { error, hostId, gameMode } = useGameStore(state => ({
     error: state.error,
     hostId: state.hostId,
+    gameMode: state.gameMode,
   }));
 
   const showExitButton = !!hostId;
+  const modeTitle = MODE_TITLE[gameMode];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-red-900 selection:text-white overflow-hidden relative">
+    <div
+      data-theme={gameMode}
+      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-red-900 selection:text-white overflow-hidden relative"
+      style={{ backgroundColor: 'var(--bg-primary, #020617)' }}
+    >
       {/* Background Ambience */}
       <div className="fixed inset-0 pointer-events-none z-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-800 via-slate-950 to-black"></div>
 
@@ -26,14 +40,14 @@ export default function Layout({ children }: LayoutProps) {
       <header className="relative z-20 w-full bg-slate-900/50 backdrop-blur-sm border-b border-slate-800 px-6 py-4 flex justify-between items-center shadow-lg">
         <div className="flex items-center gap-4">
           <div className='flex items-center gap-'>
-            <div className="w-16 h-16 flex items-center justify-center shadow-inner drop-shadow-[0_2px_10px_rgba(220,38,38,0.5)] transform rotate-3 hover:rotate-0 transition-transform duration-500">
-              <Crown size={32} className="text-red-600" />
+            <div className="w-16 h-16 flex items-center justify-center shadow-inner transform rotate-3 hover:rotate-0 transition-transform duration-500" style={{ filter: 'drop-shadow(0 2px 10px var(--color-accent, #dc2626))' }}>
+              <Crown size={32} className={modeTitle.accentClass} />
             </div>
             <div>
-              <h1 className="text-2xl font-bold  text-red-600 drop-shadow-[0_2px_10px_rgba(220,38,38,0.5)] font-creepster tracking-widest">
-                DEADLOCK
+              <h1 className={`text-2xl font-bold tracking-widest ${modeTitle.accentClass} ${modeTitle.fontClass}`} style={{ filter: 'drop-shadow(0 2px 10px var(--color-accent, #dc2626))' }}>
+                {modeTitle.name}
               </h1>
-              <p className="text-slate-500 text-[10px] tracking-[0.2em] uppercase leading-none">Trust No One</p>
+              <p className="text-slate-500 text-[10px] tracking-[0.2em] uppercase leading-none">{modeTitle.sub}</p>
             </div>
           </div>
         </div>
@@ -99,7 +113,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Footer */}
       <footer className="relative z-20 py-3 text-center text-slate-700 text-[10px] tracking-[0.2em] uppercase bg-slate-950/50 border-t border-slate-900">
-        v0.2.0 • Developed with ❤️ by <span className='underline'><a target="_blank" rel="noopener noreferrer" href='http://github.com/jhayklaus'>Jhayklaus</a></span>
+        v0.2.0 • Developed by <span className='underline'><a target="_blank" rel="noopener noreferrer" href='http://github.com/jhayklaus'>Jhayklaus</a></span>
       </footer>
     </div>
   );

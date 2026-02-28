@@ -1,10 +1,10 @@
-# DEADLOCK
+# MAFIEUX
 
-**DEADLOCK** (FKA Trust-No-One) is a browser-based, real-time social deduction game inspired by Mafia and Werewolf. Players are randomly assigned roles and must work together (or deceive one another) to win. The game features a host-authoritative architecture with real-time communication powered by Socket.IO.
+**MAFIEUX** (FKA Trust-No-One) is a browser-based, real-time social deduction game inspired by Mafia and Werewolf. Players are randomly assigned roles and must work together (or deceive one another) to win. The game features a host-authoritative architecture with real-time communication powered by Socket.IO.
 
 ## 🎮 Game Overview
 
-In **DEADLOCK**, players are divided into two main factions: the **Town** and the **Mafia**.
+In **MAFIEUX**, players are divided into two main factions: the **Town** and the **Mafia**.
 - **Town:** Must identify and eliminate the Mafia members before they take over.
 - **Mafia:** Must eliminate the Town members while keeping their identities secret.
 - **Neutral Roles:** Special roles with their own unique winning conditions (e.g., Serial Killer, Jester).
@@ -29,7 +29,7 @@ The game cycles through **Day** and **Night** phases:
 
 ## 🤖 Smart AI Integration
 
-DEADLOCK now features intelligent bots that go beyond random actions:
+MAFIEUX now features intelligent bots that go beyond random actions:
 - **Natural Language Processing:** Bots chat naturally in Global, Mafia, and Dead channels.
 - **Context Awareness:** They read the chat history and game events to make informed decisions.
 - **Personality System:** Each bot has a unique personality (e.g., Aggressive, Analytical, Chaotic).
@@ -65,8 +65,8 @@ Follow these steps to set up the project locally.
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/deadlock.git
-   cd deadlock
+   git clone https://github.com/your-username/mafieux.git
+   cd mafieux
    ```
 
 2. **Install Frontend Dependencies**

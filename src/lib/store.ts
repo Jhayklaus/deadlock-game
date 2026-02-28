@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage } from './types';
+import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage, GameModeId, ModeRoleId, UiScreen } from './types';
 
 interface GameActions {
   setMyId: (id: PlayerId) => void;
@@ -25,6 +25,23 @@ interface GameActions {
   setTimerEnd: (timestamp: number | null) => void;
   setMyDeathReason: (reason: string | null) => void;
   setTypingPlayers: (typingPlayers: Record<PlayerId, boolean>) => void;
+  // v2: mode actions
+  setGameMode: (mode: GameModeId) => void;
+  setModeAssign: (payload: {
+    modeRoleId: ModeRoleId;
+    assignedWord: string | null;
+    assignedCategory: string | null;
+    assignedNumber: number | null;
+    commonWord: string | null;
+  }) => void;
+  setWordGuessResult: (result: { guess: string; correct: boolean } | null) => void;
+  setImpostorGuessPlayerId: (id: PlayerId | null) => void;
+  setModeGameOver: (winnerId: string, winnerLabel: string, description: string) => void;
+  clearMessages: () => void;
+  // v2 UI navigation
+  setUiScreen: (screen: UiScreen) => void;
+  setSelectedMode: (mode: GameModeId) => void;
+  setAllModeRoles: (roles: Record<PlayerId, string>) => void;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -63,6 +80,22 @@ const initialState: GameState = {
   timerEnd: null,
   myDeathReason: null,
   typingPlayers: {},
+  // v2
+  gameMode: 'classic_mafia',
+  myModeRoleId: null,
+  myAssignedWord: null,
+  myAssignedCategory: null,
+  myAssignedNumber: null,
+  myCommonWord: null,
+  wordGuessResult: null,
+  impostorGuessPlayerId: null,
+  // v2 UI navigation
+  uiScreen: 'mode_picker' as UiScreen,
+  selectedMode: 'classic_mafia' as GameModeId,
+  modeWinnerId: null,
+  modeWinnerLabel: null,
+  modeWinnerDescription: null,
+  allModeRoles: {},
 };
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -139,7 +172,20 @@ export const useGameStore = create<GameState & GameActions>()(
           messages: [],
           timerEnd: null,
           typingPlayers: {},
-          error: null
+          error: null,
+          // v2
+          myModeRoleId: null,
+          myAssignedWord: null,
+          myAssignedCategory: null,
+          myAssignedNumber: null,
+          myCommonWord: null,
+          wordGuessResult: null,
+          impostorGuessPlayerId: null,
+          modeWinnerId: null,
+          modeWinnerLabel: null,
+          modeWinnerDescription: null,
+          allModeRoles: {},
+          uiScreen: 'in_lobby' as UiScreen,
         };
       }),
 
@@ -150,6 +196,24 @@ export const useGameStore = create<GameState & GameActions>()(
       }),
       setTimerEnd: (timerEnd) => set({ timerEnd }),
       setTypingPlayers: (typingPlayers) => set({ typingPlayers }),
+
+      // v2 actions
+      setGameMode: (gameMode) => set({ gameMode }),
+
+      setModeAssign: ({ modeRoleId, assignedWord, assignedCategory, assignedNumber, commonWord }) =>
+        set({ myModeRoleId: modeRoleId, myAssignedWord: assignedWord, myAssignedCategory: assignedCategory, myAssignedNumber: assignedNumber, myCommonWord: commonWord }),
+
+      setWordGuessResult: (wordGuessResult) => set({ wordGuessResult }),
+
+      setImpostorGuessPlayerId: (impostorGuessPlayerId) => set({ impostorGuessPlayerId }),
+
+      setModeGameOver: (modeWinnerId, modeWinnerLabel, modeWinnerDescription) =>
+        set({ phase: 'game_over', modeWinnerId, modeWinnerLabel, modeWinnerDescription }),
+
+      clearMessages: () => set({ messages: [] }),
+      setUiScreen: (uiScreen) => set({ uiScreen }),
+      setSelectedMode: (selectedMode) => set({ selectedMode }),
+      setAllModeRoles: (allModeRoles) => set({ allModeRoles }),
     }),
     {
       name: 'tno-game-storage',
@@ -167,6 +231,21 @@ export const useGameStore = create<GameState & GameActions>()(
         settings: state.settings,
         messages: state.messages,
         timerEnd: state.timerEnd,
+        // v2
+        gameMode: state.gameMode,
+        myModeRoleId: state.myModeRoleId,
+        myAssignedWord: state.myAssignedWord,
+        myAssignedCategory: state.myAssignedCategory,
+        myAssignedNumber: state.myAssignedNumber,
+        myCommonWord: state.myCommonWord,
+        impostorGuessPlayerId: state.impostorGuessPlayerId,
+        // v2 UI navigation
+        uiScreen: state.uiScreen,
+        selectedMode: state.selectedMode,
+        modeWinnerId: state.modeWinnerId,
+        modeWinnerLabel: state.modeWinnerLabel,
+        modeWinnerDescription: state.modeWinnerDescription,
+        allModeRoles: state.allModeRoles,
       }),
     }
   )

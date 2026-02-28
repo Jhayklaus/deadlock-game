@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Creepster&family=Nosifer&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Creepster&family=Nosifer&family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700;900&family=Oswald:wght@400;600;700&family=Share+Tech+Mono&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -33,12 +33,66 @@
   }
 }
 
+/* ─── Mode Themes ──────────────────────────────────────────────────────────── */
+[data-theme="classic_mafia"] {
+  --bg-primary: #020617;
+  --bg-secondary: #0f172a;
+  --bg-surface: #1e293b;
+  --color-accent: #dc2626;
+  --color-accent-dim: rgba(220,38,38,0.15);
+  --border-color: #334155;
+  --text-primary: #f1f5f9;
+  --text-muted: #64748b;
+}
+
+[data-theme="word_impostor"] {
+  --bg-primary: #0d0d1f;
+  --bg-secondary: #12122e;
+  --bg-surface: #1a1a3e;
+  --color-accent: #8b5cf6;
+  --color-accent-dim: rgba(139,92,246,0.15);
+  --border-color: #3b2d6b;
+  --text-primary: #ede9fe;
+  --text-muted: #7c6fa0;
+}
+
+[data-theme="undercover"] {
+  --bg-primary: #0c0c0c;
+  --bg-secondary: #161616;
+  --bg-surface: #222222;
+  --color-accent: #f59e0b;
+  --color-accent-dim: rgba(245,158,11,0.15);
+  --border-color: #3d3520;
+  --text-primary: #fef3c7;
+  --text-muted: #78716c;
+}
+
+[data-theme="frequency_spy"] {
+  --bg-primary: #020c10;
+  --bg-secondary: #041218;
+  --bg-surface: #071c24;
+  --color-accent: #22d3ee;
+  --color-accent-dim: rgba(34,211,238,0.12);
+  --border-color: #164e63;
+  --text-primary: #ecfeff;
+  --text-muted: #4e7a88;
+}
+
 @layer utilities {
   .font-creepster {
     font-family: 'Creepster', system-ui, cursive;
   }
   .font-nosifer {
     font-family: 'Nosifer', system-ui, cursive;
+  }
+  .font-playfair {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+  .font-oswald {
+    font-family: 'Oswald', sans-serif;
+  }
+  .font-share-tech {
+    font-family: 'Share Tech Mono', monospace;
   }
   .text-shadow-sm {
     text-shadow: 0 1px 2px rgba(0,0,0,0.5);

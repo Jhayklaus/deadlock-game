@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useGameStore } from '../../lib/store';
 import type { GameModeId } from '../../lib/types';
 import ModeGuide from '../ModeGuide';
+import { getMode } from '../../modes/registry';
+// Side-effect import: ensures the registry is populated before we read it.
+import '../../modes/index';
 import { Sword, BookOpen, Eye, Radio, ArrowRight, Users, HelpCircle } from 'lucide-react';
 
 interface ModeCard {
@@ -9,7 +12,6 @@ interface ModeCard {
   name: string;
   tagline: string;
   description: string;
-  players: string;
   icon: React.ReactNode;
   /** Each card advertises its own identity, so these stay per-card rather
    *  than themed — all four modes are on screen at once here. */
@@ -27,7 +29,6 @@ const MODES: ModeCard[] = [
     tagline: 'Classic Mafia',
     description:
       'The original. Detectives, doctors, killers. Survive the night, then find the liars before they find you.',
-    players: '5–15 players',
     icon: <Sword size={22} />,
     accent: 'text-red-500',
     tint: 'bg-red-500/10',
@@ -41,7 +42,6 @@ const MODES: ModeCard[] = [
     tagline: 'Word Impostor',
     description:
       'Crewmates share a secret word. The impostor knows only the category, and has to bluff their way through.',
-    players: '5–15 players',
     icon: <BookOpen size={22} />,
     accent: 'text-violet-400',
     tint: 'bg-violet-500/10',
@@ -55,7 +55,6 @@ const MODES: ModeCard[] = [
     tagline: 'Undercover Agent',
     description:
       'Two words, almost the same. One agent gets nothing at all. Describe yours without handing yourself in.',
-    players: '6–12 players',
     icon: <Eye size={22} />,
     accent: 'text-amber-400',
     tint: 'bg-amber-500/10',
@@ -69,7 +68,6 @@ const MODES: ModeCard[] = [
     tagline: 'Frequency Spy',
     description:
       'A hidden spectrum. Everyone clusters near the same number — one spy is wildly off. Find the outlier.',
-    players: '5–12 players',
     icon: <Radio size={22} />,
     accent: 'text-cyan-400',
     tint: 'bg-cyan-500/10',
@@ -155,7 +153,9 @@ export default function ModePicker() {
             <div className="relative z-20 flex items-center justify-between gap-3">
               <span className="flex items-center gap-1.5 text-[11px] text-ink-muted/70 pointer-events-none">
                 <Users size={12} />
-                {mode.players}
+                {/* Read from the mode definition so this can never drift
+                    from the count the lobby actually enforces. */}
+                {getMode(mode.id).minPlayers}–{getMode(mode.id).maxPlayers} players
               </span>
 
               <button

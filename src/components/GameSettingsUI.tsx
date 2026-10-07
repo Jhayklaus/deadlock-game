@@ -1,13 +1,14 @@
 import { useGameStore } from '../lib/store';
+import { networkManager } from '../lib/network';
 import { GameSettings } from '../lib/types';
 import { Settings, Clock, Users } from 'lucide-react';
 import { Input } from './ui/Input';
+import { VoiceRoomSetting } from './VoiceRoom';
 import { clsx } from 'clsx';
 
 export default function GameSettingsUI() {
-  const { settings, setSettings, isHost, gameMode } = useGameStore(state => ({
+  const { settings, isHost, gameMode } = useGameStore(state => ({
     settings: state.settings,
-    setSettings: state.setSettings,
     isHost: state.myId === state.hostId,
     gameMode: state.gameMode,
   }));
@@ -41,12 +42,14 @@ export default function GameSettingsUI() {
     );
   }
 
+  // Route through the network manager rather than the store directly, so the
+  // change is broadcast to everyone already sitting in the lobby.
   const updateSetting = (key: keyof GameSettings, value: number) => {
-    setSettings({ ...settings, [key]: value });
+    networkManager.updateSettings({ ...settings, [key]: value });
   };
 
   const updateRole = (role: keyof GameSettings['roles'], key: 'count' | 'chance', value: number) => {
-    setSettings({
+    networkManager.updateSettings({
       ...settings,
       roles: {
         ...settings.roles,
@@ -62,6 +65,8 @@ export default function GameSettingsUI() {
       </h3>
 
       <div className="space-y-8">
+        <VoiceRoomSetting />
+
         {/* Timers */}
         <div className="space-y-6">
           <h4 className="font-bold text-slate-300 border-b border-slate-700 pb-2 flex items-center gap-2 text-sm uppercase tracking-wider">

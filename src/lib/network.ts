@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { useGameStore } from './store';
-import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId } from './types';
+import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId, GameSettings } from './types';
 import { distributeRoles } from './gameLogic';
 import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from './bots';
 import { soundManager } from './sound';
@@ -1173,6 +1173,25 @@ class NetworkManager {
       });
   }
 
+  /**
+   * Applies a settings change and, when hosting, pushes it to everyone in the
+   * lobby. Settings used to travel only on WELCOME and GAME_START, so anything
+   * the host changed after players joined stayed invisible to them until the
+   * game started — too late for something like a voice room link.
+   */
+  updateSettings(settings: GameSettings) {
+      const store = useGameStore.getState();
+      store.setSettings(settings);
+
+      if (store.myId === store.hostId) {
+          this.broadcast({
+              type: 'SETTINGS_UPDATE',
+              senderId: store.myId,
+              payload: { settings }
+          });
+      }
+  }
+
   sendVote(targetId: string | null) {
       const store = useGameStore.getState();
       const msg: NetworkMessage = {
@@ -1501,6 +1520,13 @@ class NetworkManager {
 
       case 'PLAYER_UPDATE':
         store.setPlayers(message.payload.players);
+        break;
+
+      case 'SETTINGS_UPDATE':
+        // Only the host dictates settings; ignore it from anyone else.
+        if (message.senderId === store.hostId) {
+            store.setSettings(message.payload.settings);
+        }
         break;
 
       case 'GAME_START':

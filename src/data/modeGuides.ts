@@ -41,7 +41,6 @@ export interface ModeGuide {
   readonly modeId: GameModeId;
   readonly name: string;
   readonly tagline: string;
-  readonly players: string;
   readonly length: string;
   readonly steps: ReadonlyArray<GuideStep>;
 }
@@ -50,7 +49,6 @@ const classicMafia: ModeGuide = {
   modeId: 'classic_mafia',
   name: 'Classic Mafia',
   tagline: 'Trust no one',
-  players: '5–15 players',
   length: '15–30 min',
   steps: [
     {
@@ -105,7 +103,6 @@ const wordImpostor: ModeGuide = {
   modeId: 'word_impostor',
   name: 'Word Impostor',
   tagline: 'Find the fake',
-  players: '5–15 players',
   length: '10–20 min',
   steps: [
     {
@@ -168,7 +165,6 @@ const undercover: ModeGuide = {
   modeId: 'undercover',
   name: 'Undercover',
   tagline: 'Blend in',
-  players: '6–12 players',
   length: '10–20 min',
   steps: [
     {
@@ -232,7 +228,6 @@ const frequencySpy: ModeGuide = {
   modeId: 'frequency_spy',
   name: 'Frequency Spy',
   tagline: 'Find the outlier',
-  players: '5–12 players',
   length: '10–20 min',
   steps: [
     {

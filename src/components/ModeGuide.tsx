@@ -8,6 +8,9 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { getModeGuide, type GuideIcon, type GuideStep } from '../data/modeGuides';
 import type { GameModeId } from '../lib/types';
+import { getMode } from '../modes/registry';
+// Side-effect import: ensures the registry is populated before we read it.
+import '../modes/index';
 
 const ICONS: Record<GuideIcon, LucideIcon> = {
   users: Users,
@@ -66,6 +69,8 @@ interface ModeGuideProps {
 
 export default function ModeGuide({ modeId, isOpen, onClose }: ModeGuideProps) {
   const guide = useMemo(() => getModeGuide(modeId), [modeId]);
+  // Player counts come from the mode definition, never a second copy.
+  const def = useMemo(() => getMode(modeId), [modeId]);
   const [index, setIndex] = useState(0);
 
   const total = guide.steps.length;
@@ -144,7 +149,7 @@ export default function ModeGuide({ modeId, isOpen, onClose }: ModeGuideProps) {
 
           <div className="flex items-center gap-4 text-[11px] text-ink-muted">
             <span className="flex items-center gap-1.5">
-              <Users size={12} /> {guide.players}
+              <Users size={12} /> {def.minPlayers}–{def.maxPlayers} players
             </span>
             <span className="flex items-center gap-1.5">
               <Clock size={12} /> {guide.length}

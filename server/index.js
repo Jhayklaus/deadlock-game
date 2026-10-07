@@ -30,13 +30,41 @@ const userToSocket = new Map(); // userId -> socketId
 const socketToUser = new Map(); // socketId -> userId
 const socketRooms = new Map(); // socketId -> roomId (hostId)
 
-// Initialize DeepSeek (via OpenAI SDK)
-const openai = new OpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey: process.env.DEEP_SEEK_API_KEY
+// DeepSeek (via the OpenAI SDK) powers the smart bots.
+//
+// Built lazily: the SDK throws on construction when no key is present, which
+// previously crashed the whole server at startup. Bots are an optional extra —
+// the relay that actually runs the game needs no AI credentials at all — so a
+// missing key must degrade to "no bot chat", not "no server".
+let openai = null;
+let aiUnavailableReason = null;
+
+if (process.env.DEEP_SEEK_API_KEY) {
+  try {
+    openai = new OpenAI({
+      baseURL: 'https://api.deepseek.com',
+      apiKey: process.env.DEEP_SEEK_API_KEY,
+    });
+  } catch (error) {
+    aiUnavailableReason = 'Failed to initialise the AI client: ' + error.message;
+    console.warn('[ai] ' + aiUnavailableReason);
+  }
+} else {
+  aiUnavailableReason =
+    'DEEP_SEEK_API_KEY is not set. Bots will fall back to simple scripted behaviour.';
+  console.warn('[ai] ' + aiUnavailableReason);
+}
+
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, ai: openai ? 'ready' : 'unavailable' });
 });
 
 app.post('/api/bot-action', async (req, res) => {
+  if (!openai) {
+    // 503 rather than 500: the request is fine, the capability is absent.
+    return res.status(503).json({ error: aiUnavailableReason });
+  }
+
   try {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
@@ -47,7 +75,7 @@ app.post('/api/bot-action', async (req, res) => {
     });
 
     const text = completion.choices[0].message.content;
-    
+
     res.json({ text });
   } catch (error) {
     console.error('AI Error:', error.message);

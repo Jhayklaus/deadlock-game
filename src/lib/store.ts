@@ -46,6 +46,7 @@ interface GameActions {
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
+  voiceRoomUrl: null,
   dayDuration: 180,
   discussionDuration: 60,
   votingDuration: 60,

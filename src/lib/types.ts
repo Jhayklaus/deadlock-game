@@ -167,6 +167,12 @@ export interface GameState {
 }
 
 export interface GameSettings {
+  /**
+   * External voice room (Meet / Zoom / Discord) the host pastes in the lobby.
+   * Null when none is set. Muting is on the honour system here — the game
+   * cannot control an external call.
+   */
+  voiceRoomUrl?: string | null;
   dayDuration: number; // seconds
   discussionDuration: number; // seconds
   votingDuration: number; // seconds
@@ -214,6 +220,7 @@ export type MessageType =
   | 'DEATH_INFO'
   | 'KICK_PLAYER'
   | 'TYPING'
+  | 'SETTINGS_UPDATE' // host → all: live lobby settings change
   | 'MODE_ASSIGN'   // v2: per-player mode payload (sent individually, never broadcast)
   | 'MODE_ACTION'   // v2: player → host generic action
   | 'MODE_RESULT';  // v2: host → all result broadcast
@@ -332,6 +339,18 @@ export interface KickPlayerMessage extends BaseMessage {
   payload: {};
 }
 
+/**
+ * Lobby settings changed on the host. Previously settings only reached players
+ * on WELCOME and GAME_START, so anything the host changed after people joined
+ * stayed invisible until the game began.
+ */
+export interface SettingsUpdateMessage extends BaseMessage {
+  type: 'SETTINGS_UPDATE';
+  payload: {
+    settings: GameSettings;
+  };
+}
+
 export interface TypingMessage extends BaseMessage {
   type: 'TYPING';
   payload: {
@@ -387,6 +406,7 @@ export type NetworkMessage =
   | DeathInfoMessage
   | KickPlayerMessage
   | TypingMessage
+  | SettingsUpdateMessage
   | ModeAssignMessage
   | ModeActionMessage
   | ModeResultMessage;

@@ -4,6 +4,7 @@ import { networkManager } from '../lib/network';
 import Timer from './Timer';
 import CheatSheet from './CheatSheet';
 import { HowToPlayButton } from './ModeGuide';
+import { VoiceRoomBar } from './VoiceRoom';
 import { LogOut, AlertTriangle, X, Crown } from 'lucide-react';
 import type { GameModeId } from '../lib/types';
 
@@ -73,6 +74,9 @@ export default function Layout({ children }: LayoutProps) {
               <span className="text-sm font-semibold text-accent tabular">{round}</span>
             </div>
           )}
+
+          {/* Quick re-join for the voice room, once the host has set one. */}
+          <VoiceRoomBar compact />
 
           {/* Walkthrough for the active mode — also shows itself the first
               time a player reaches a lobby for a mode they have not seen. */}

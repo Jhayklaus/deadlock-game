@@ -354,6 +354,20 @@ const deadlock: ModeGuide = {
         'An Impostor can kill anyone standing in the same room, then has to wait out a cooldown before killing again. The body stays where it fell. The real danger is a third person walking in \u2014 or noticing that you and the victim were last seen together.',
     },
     {
+      icon: 'eye',
+      title: 'Sabotage',
+      body:
+        'Impostors do not run tasks. Instead they break the station: cut the lights so nobody can see past their own room, seal the doors of the room they are standing in, or trigger a reactor meltdown. The reactor is the dangerous one \u2014 if no crewmate reaches it in time, the crew lose outright, so it drags everyone away from whatever they were doing.',
+      example: {
+        label: 'What each one does',
+        lines: [
+          'Lights   \u2014  nobody sees other rooms. Fix in Engineering',
+          'Doors    \u2014  seals the saboteur\u2019s room. Lapses on its own',
+          'Reactor  \u2014  crew lose if nobody reaches it. Fix in the Reactor',
+        ],
+      },
+    },
+    {
       icon: 'vote',
       title: 'Calling everyone together',
       body:

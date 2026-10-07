@@ -57,6 +57,11 @@ interface GameActions {
 const DEFAULT_SETTINGS: GameSettings = {
   voiceRoomUrl: null,
   nightTasksEnabled: true,
+  // Deadlock
+  deadlockImpostors: 1,
+  deadlockTasks: 3,
+  deadlockKillCooldown: 25,
+  deadlockSabotageCooldown: 35,
   trialEnabled: true,
   defenseDuration: 30,
   verdictDuration: 30,
@@ -96,6 +101,8 @@ const DEFAULT_DEADLOCK = {
   killReadyAt: 0,
   emergencyUsed: false,
   lastMeeting: null,
+  sabotage: null,
+  sabotageReadyAt: 0,
 };
 
 const initialState: GameState = {

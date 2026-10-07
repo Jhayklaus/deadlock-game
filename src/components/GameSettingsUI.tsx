@@ -1,7 +1,7 @@
 import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
 import { GameSettings } from '../lib/types';
-import { Settings, Clock, Users, Gavel } from 'lucide-react';
+import { Settings, Clock, Users, Gavel, Radar } from 'lucide-react';
 import { Input } from './ui/Input';
 import { VoiceRoomSetting } from './VoiceRoom';
 import { clsx } from 'clsx';
@@ -14,6 +14,10 @@ export default function GameSettingsUI() {
   }));
 
   const isClassic = gameMode === 'classic_mafia';
+  const isDeadlock = gameMode === 'deadlock';
+  const playerCount = Object.keys(useGameStore.getState().players).length;
+  // Never offer so many impostors that they would start at parity and win at once.
+  const maxImpostors = Math.max(1, Math.floor((playerCount - 1) / 2));
 
   if (!isHost) {
     return (
@@ -66,6 +70,63 @@ export default function GameSettingsUI() {
 
       <div className="space-y-8">
         <VoiceRoomSetting />
+
+        {isDeadlock && (
+          <div className="space-y-4">
+            <h4 className="font-semibold text-ink-muted border-b border-edge/50 pb-2 flex items-center gap-2 text-xs uppercase tracking-wider">
+              <Radar size={14} /> Station
+            </h4>
+
+            <div className="space-y-2">
+              <label className="text-xs text-ink-muted font-bold uppercase">Impostors</label>
+              <div className="flex gap-2">
+                {Array.from({ length: Math.min(3, maxImpostors) }, (_, i) => i + 1).map(n => (
+                  <button
+                    key={n}
+                    onClick={() => networkManager.updateSettings({ ...settings, deadlockImpostors: n })}
+                    className={clsx(
+                      'flex-1 h-10 rounded-xl border text-sm font-semibold transition-all active:scale-[0.97]',
+                      (settings.deadlockImpostors ?? 1) === n
+                        ? 'bg-accent text-base border-accent'
+                        : 'bg-surface/60 border-edge/60 text-ink-muted hover:text-ink hover:border-edge'
+                    )}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-ink-muted">
+                {playerCount < 5
+                  ? 'Add more players to unlock higher counts.'
+                  : `Up to ${Math.min(3, maxImpostors)} with ${playerCount} players.`}
+              </p>
+            </div>
+
+            {([
+              { label: 'Tasks each', key: 'deadlockTasks', min: 1, max: 6, step: 1, unit: '' },
+              { label: 'Kill cooldown', key: 'deadlockKillCooldown', min: 10, max: 60, step: 5, unit: 's' },
+              { label: 'Sabotage cooldown', key: 'deadlockSabotageCooldown', min: 15, max: 90, step: 5, unit: 's' },
+            ] as const).map(t => (
+              <div key={t.key} className="space-y-2">
+                <label className="text-xs text-ink-muted font-bold uppercase">{t.label}</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={t.min}
+                    max={t.max}
+                    step={t.step}
+                    value={(settings[t.key] as number) ?? t.min}
+                    onChange={e => updateSetting(t.key, parseInt(e.target.value))}
+                    className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="text-right text-sm font-mono font-bold w-12 text-ink-muted">
+                    {(settings[t.key] as number) ?? t.min}{t.unit}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {isClassic && (
           <div className="space-y-3">
@@ -229,9 +290,9 @@ export default function GameSettingsUI() {
         )}
 
         {/* Non-classic info note */}
-        {!isClassic && (
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4 text-center">
-            <p className="text-slate-500 text-sm">Role distribution for this mode is automatic.</p>
+        {!isClassic && !isDeadlock && (
+          <div className="bg-base/40 border border-edge/50 rounded-xl p-4 text-center">
+            <p className="text-ink-muted text-sm">Role distribution for this mode is automatic.</p>
           </div>
         )}
       </div>

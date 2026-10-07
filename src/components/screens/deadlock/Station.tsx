@@ -6,7 +6,11 @@ import { DEADLOCK_ROOMS, getCorridors, getRoom, isAdjacent, SPAWN_ROOM } from '.
 import { KILL_COOLDOWN_SECONDS } from '../../../modes/deadlock';
 import { Card } from '../../ui/Card';
 import StationTask from './StationTask';
-import { Crosshair, Siren, AlertTriangle, CheckCircle2, Footprints, Users } from 'lucide-react';
+import {
+  Crosshair, Siren, AlertTriangle, CheckCircle2, Footprints, Users,
+  Lightbulb, DoorClosed, Radiation, Wrench, ShieldAlert,
+} from 'lucide-react';
+import type { SabotageKind } from '../../../lib/types';
 
 /**
  * The station screen.
@@ -34,6 +38,12 @@ export default function Station() {
 
   const isImpostor = myModeRoleId === 'station_impostor';
   const me = players[myId];
+  const sabotage = deadlock.sabotage;
+  const sabotageSecondsLeft = sabotage ? Math.max(0, Math.ceil((sabotage.endsAt - now) / 1000)) : 0;
+  const sabotageReadyIn = Math.max(0, Math.ceil((deadlock.sabotageReadyAt - now) / 1000));
+
+  // Lights out: you can only see who is in your own room.
+  const blackout = sabotage?.kind === 'lights' && sabotageSecondsLeft > 0;
   const myRoomId = deadlock.positions[myId] ?? SPAWN_ROOM;
   const myRoom = getRoom(myRoomId);
 
@@ -45,8 +55,15 @@ export default function Station() {
   );
   const bodiesHere = deadlock.bodies.filter(b => b.roomId === myRoomId);
 
+  // Impostors sabotage rather than work, so the task button is crew-only.
   const taskHere =
-    deadlock.myTasks.includes(myRoomId) && !deadlock.myTasksDone.includes(myRoomId);
+    !isImpostor &&
+    deadlock.myTasks.includes(myRoomId) &&
+    !deadlock.myTasksDone.includes(myRoomId);
+
+  // Crew standing at a fix point can deal with the active sabotage.
+  const canFix =
+    !isImpostor && !!sabotage?.fixRoomId && sabotage.fixRoomId === myRoomId && sabotageSecondsLeft > 0;
 
   const cooldownLeft = Math.max(0, Math.ceil((deadlock.killReadyAt - now) / 1000));
   const canKill = isImpostor && cooldownLeft === 0 && roomMates.length > 0;
@@ -92,18 +109,31 @@ export default function Station() {
             {DEADLOCK_ROOMS.map(room => {
               const here = room.id === myRoomId;
               const reachable = isAdjacent(myRoomId, room.id);
-              const occupants = Object.values(players).filter(
-                p => p.isAlive && deadlock.positions[p.id] === room.id
-              );
-              const bodies = deadlock.bodies.filter(b => b.roomId === room.id);
+              const sealedIn =
+                sabotage?.kind === 'doors' &&
+                sabotage.roomId === myRoomId &&
+                sabotageSecondsLeft > 0;
+              // During a blackout you only see your own room.
+              const occupants = blackout && room.id !== myRoomId
+                ? []
+                : Object.values(players).filter(
+                    p => p.isAlive && deadlock.positions[p.id] === room.id
+                  );
+              const bodies = blackout && room.id !== myRoomId
+                ? []
+                : deadlock.bodies.filter(b => b.roomId === room.id);
+              // Impostors keep a cover list to quote in meetings, but they
+              // cannot work, so marking rooms on their map would be a lie.
               const hasMyTask =
-                deadlock.myTasks.includes(room.id) && !deadlock.myTasksDone.includes(room.id);
+                !isImpostor &&
+                deadlock.myTasks.includes(room.id) &&
+                !deadlock.myTasksDone.includes(room.id);
 
               return (
                 <button
                   key={room.id}
-                  disabled={!reachable && !here}
-                  onClick={() => reachable && networkManager.sendDeadlockMove(room.id)}
+                  disabled={(!reachable && !here) || sealedIn}
+                  onClick={() => reachable && !sealedIn && networkManager.sendDeadlockMove(room.id)}
                   style={{ left: `${room.x}%`, top: `${room.y}%` }}
                   className={clsx(
                     'absolute -translate-x-1/2 -translate-y-1/2 px-2.5 py-2 rounded-xl border',
@@ -182,10 +212,63 @@ export default function Station() {
           </div>
           <p className="text-[11px] text-ink-muted mt-2">
             {isImpostor
-              ? 'Let this fill and the crew wins. Slow them down.'
+              ? 'Let this fill and the crew wins. Sabotage to slow them down.'
               : 'Finish every task and the crew wins, even without catching anyone.'}
           </p>
         </Card>
+
+        {/* Live sabotage */}
+        {sabotage && sabotageSecondsLeft > 0 && (
+          <Card
+            variant="glass"
+            padding="sm"
+            className={clsx(
+              'border',
+              sabotage.kind === 'reactor' ? 'border-danger/50 bg-danger/[0.07] animate-pulse-glow' : 'border-warning/40 bg-warning/[0.06]'
+            )}
+          >
+            <div className="flex items-start gap-2.5">
+              <div className={clsx(
+                'p-1.5 rounded-lg shrink-0',
+                sabotage.kind === 'reactor' ? 'bg-danger/15 text-danger' : 'bg-warning/15 text-warning'
+              )}>
+                {sabotage.kind === 'lights' ? <Lightbulb size={15} />
+                  : sabotage.kind === 'doors' ? <DoorClosed size={15} />
+                  : <Radiation size={15} />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-ink leading-tight">
+                  {sabotage.kind === 'lights' ? 'Lights are out'
+                    : sabotage.kind === 'doors' ? 'Doors sealed'
+                    : 'Reactor meltdown'}
+                </p>
+                <p className="text-xs text-ink-muted mt-0.5">
+                  {sabotage.kind === 'lights' ? 'You can only see your own room.'
+                    : sabotage.kind === 'doors' ? 'Someone is locked in.'
+                    : 'Reach the reactor or the crew lose.'}
+                  {' '}<span className="tabular font-semibold">{sabotageSecondsLeft}s</span>
+                </p>
+              </div>
+            </div>
+
+            {canFix && (
+              <button
+                onClick={() => networkManager.sendDeadlockFix()}
+                className="w-full mt-3 h-10 rounded-xl text-sm font-semibold bg-success text-base
+                  hover:brightness-110 transition-all active:scale-[0.98]
+                  inline-flex items-center justify-center gap-2"
+              >
+                <Wrench size={15} />
+                {sabotage.kind === 'reactor' ? 'Stabilise the reactor' : 'Restore the lights'}
+              </button>
+            )}
+            {!canFix && sabotage.fixRoomId && !isImpostor && (
+              <p className="text-[11px] text-ink-muted mt-2.5">
+                Fix it in <span className="text-ink font-semibold">{getRoom(sabotage.fixRoomId)?.name}</span>.
+              </p>
+            )}
+          </Card>
+        )}
 
         {/* Actions */}
         <div className="space-y-2">
@@ -224,6 +307,49 @@ export default function Station() {
                   Kill ready in {cooldownLeft}s
                 </p>
               )}
+            </div>
+          )}
+
+          {isImpostor && (
+            <div className="pt-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-ink-muted mb-2 flex items-center gap-1.5">
+                <ShieldAlert size={12} /> Sabotage
+                {sabotageReadyIn > 0 && (
+                  <span className="ml-auto normal-case tracking-normal tabular">{sabotageReadyIn}s</span>
+                )}
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { kind: 'lights' as SabotageKind, label: 'Lights', icon: Lightbulb },
+                  { kind: 'doors' as SabotageKind, label: 'Doors', icon: DoorClosed },
+                  { kind: 'reactor' as SabotageKind, label: 'Reactor', icon: Radiation },
+                ]).map(({ kind, label, icon: Icon }) => {
+                  const blocked = sabotageReadyIn > 0 || (!!sabotage && sabotageSecondsLeft > 0);
+                  return (
+                    <button
+                      key={kind}
+                      disabled={blocked}
+                      onClick={() => networkManager.sendDeadlockSabotage(kind)}
+                      className={clsx(
+                        'h-16 rounded-xl border flex flex-col items-center justify-center gap-1',
+                        'transition-all active:scale-[0.97]',
+                        blocked
+                          ? 'bg-surface/40 border-edge/40 text-ink-muted/40 cursor-not-allowed'
+                          : kind === 'reactor'
+                            ? 'bg-danger/10 border-danger/40 text-danger hover:bg-danger/20'
+                            : 'bg-warning/10 border-warning/35 text-warning hover:bg-warning/20'
+                      )}
+                    >
+                      <Icon size={16} />
+                      <span className="text-[10px] font-semibold uppercase tracking-wider">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-ink-muted mt-2 leading-relaxed">
+                Doors seal the room you are standing in. The reactor forces the crew
+                to drop everything and run.
+              </p>
             </div>
           )}
 

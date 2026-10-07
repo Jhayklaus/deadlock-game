@@ -35,11 +35,39 @@ const PHASES: ReadonlyArray<GamePhase> = [
   'game_over',
 ];
 
-/** Tasks dealt to each crewmate. */
+/** Fallbacks, used when the host has not set these. */
 export const TASKS_PER_CREW = 3;
-
-/** Seconds an impostor must wait between kills. */
 export const KILL_COOLDOWN_SECONDS = 25;
+export const SABOTAGE_COOLDOWN_SECONDS = 35;
+
+/** How long each sabotage runs before it resolves on its own. */
+export const SABOTAGE_DURATIONS: Record<'lights' | 'doors' | 'reactor', number> = {
+  lights: 30,
+  doors: 15,
+  // The reactor is the only one that can lose the crew the game, so it gets
+  // enough time for someone to realistically cross the station.
+  reactor: 45,
+};
+
+/** Where the crew must go to deal with each sabotage. */
+export const SABOTAGE_FIX_ROOM: Record<'lights' | 'doors' | 'reactor', string | null> = {
+  lights: 'engineering',
+  doors: null,      // doors simply time out
+  reactor: 'reactor',
+};
+
+/**
+ * How many impostors to deal.
+ *
+ * The host's choice wins, clamped so a game is always playable: at least one
+ * impostor, and never so many that they start at parity and win instantly.
+ */
+export function resolveImpostorCount(playerCount: number, requested?: number): number {
+  const maxSafe = Math.max(1, Math.floor((playerCount - 1) / 2));
+  const fallback = playerCount >= 9 ? 2 : 1;
+  const wanted = requested && requested > 0 ? requested : fallback;
+  return Math.min(Math.max(1, wanted), maxSafe);
+}
 
 export const deadlockMode: GameModeDefinition = {
   id: 'deadlock' as GameModeId,
@@ -50,10 +78,8 @@ export const deadlockMode: GameModeDefinition = {
   maxPlayers: 12,
   phases: PHASES,
 
-  distributeRoles(playerIds): Record<PlayerId, ModeRoleId> {
-    const count = playerIds.length;
-    // One impostor up to 8 players, two beyond that.
-    const impostorCount = count >= 9 ? 2 : 1;
+  distributeRoles(playerIds, settings): Record<PlayerId, ModeRoleId> {
+    const impostorCount = resolveImpostorCount(playerIds.length, settings?.deadlockImpostors);
     const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
 
     const roles: Record<PlayerId, ModeRoleId> = {};
@@ -63,10 +89,12 @@ export const deadlockMode: GameModeDefinition = {
     return roles;
   },
 
-  buildGameStartData(playerIds, roles) {
+  buildGameStartData(playerIds, roles, settings) {
     const impostorIds = Object.entries(roles)
       .filter(([, r]) => r === 'station_impostor')
       .map(([id]) => id);
+
+    const tasksPerCrew = Math.max(1, settings?.deadlockTasks ?? TASKS_PER_CREW);
 
     const perPlayerPayloads: Record<PlayerId, PlayerPayload> = {};
     const taskAssignments: Record<PlayerId, string[]> = {};
@@ -75,10 +103,13 @@ export const deadlockMode: GameModeDefinition = {
     for (const id of playerIds) {
       positions[id] = SPAWN_ROOM;
 
-      // Impostors get a task list too, so that standing at a console proves
-      // nothing on its own.
-      const tasks = assignTasks(TASKS_PER_CREW);
-      taskAssignments[id] = tasks;
+      const isImpostor = impostorIds.includes(id);
+      // Impostors sabotage rather than work. They still see a list, because
+      // "what are your tasks?" is the first question asked in any meeting and
+      // an impostor with no answer is caught for free — but it is labelled as
+      // cover and they cannot complete any of it.
+      const tasks = assignTasks(tasksPerCrew);
+      if (!isImpostor) taskAssignments[id] = tasks;
 
       perPlayerPayloads[id] = {
         modeRoleId: roles[id],
@@ -91,8 +122,6 @@ export const deadlockMode: GameModeDefinition = {
       };
     }
 
-    // Only real crew tasks count toward the win, otherwise impostors could
-    // finish the game for the crew by faking them.
     const crewIds = playerIds.filter(id => !impostorIds.includes(id));
 
     const hostPrivateState: HostPrivateState = {
@@ -103,8 +132,10 @@ export const deadlockMode: GameModeDefinition = {
       tasksDoneJson: JSON.stringify({}),
       bodiesJson: JSON.stringify([]),
       killReadyJson: JSON.stringify({}),
+      sabotageReadyJson: JSON.stringify({}),
+      sabotageJson: JSON.stringify(null),
       emergenciesUsedJson: JSON.stringify([]),
-      tasksTotal: crewIds.length * TASKS_PER_CREW,
+      tasksTotal: crewIds.length * tasksPerCrew,
       tasksCompleted: 0,
       round: 1,
     };
@@ -176,6 +207,15 @@ export const deadlockMode: GameModeDefinition = {
         winnerId: 'impostor',
         winnerLabel: 'The Impostors',
         description: 'The impostors outnumber the crew. The station is lost.',
+      };
+    }
+
+    // A reactor meltdown nobody stabilised in time ends it outright.
+    if (hostPrivateState.reactorBlown === true) {
+      return {
+        winnerId: 'impostor',
+        winnerLabel: 'The Impostors',
+        description: 'Nobody reached the reactor in time. The station is gone.',
       };
     }
 

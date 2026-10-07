@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useGameStore } from '../../lib/store';
 import type { GameModeId } from '../../lib/types';
-import { Sword, BookOpen, Eye, Radio, ArrowRight, Users } from 'lucide-react';
+import ModeGuide from '../ModeGuide';
+import { Sword, BookOpen, Eye, Radio, ArrowRight, Users, HelpCircle } from 'lucide-react';
 
 interface ModeCard {
   id: GameModeId;
@@ -83,6 +85,9 @@ export default function ModePicker() {
     setUiScreen: state.setUiScreen,
   }));
 
+  // Which mode's walkthrough is open, if any.
+  const [guideFor, setGuideFor] = useState<GameModeId | null>(null);
+
   const handleSelect = (modeId: GameModeId) => {
     setSelectedMode(modeId);
     setUiScreen('pre_join');
@@ -98,48 +103,69 @@ export default function ModePicker() {
           Choose your game
         </h1>
         <p className="text-ink-muted text-sm max-w-md mx-auto leading-relaxed">
-          Pick a mode to host, or join a friend&apos;s room with their code.
+          Pick a mode to host, or join a friend&apos;s room with their code. New to one?
+          Read its walkthrough first.
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
         {MODES.map(mode => (
-          <button
+          <div
             key={mode.id}
-            onClick={() => handleSelect(mode.id)}
-            className={`group relative w-full text-left p-6 rounded-2xl border border-edge/60
-              bg-elevated/60 backdrop-blur-sm overflow-hidden edge-light
+            className={`group relative rounded-2xl border border-edge/60 bg-elevated/60
+              backdrop-blur-sm overflow-hidden edge-light p-6
               transition-all duration-300 ease-out-expo
               hover:-translate-y-1 ${mode.ring} ${mode.glow}`}
           >
-            <div className="flex items-start justify-between mb-5">
-              <div
-                className={`p-2.5 rounded-xl ${mode.tint} ${mode.accent}
-                  transition-transform duration-300 ease-spring group-hover:scale-110`}
-              >
-                {mode.icon}
+            {/* Full-card hit area. Kept as a sibling rather than a wrapper so
+                the walkthrough control below is not a button inside a button. */}
+            <button
+              onClick={() => handleSelect(mode.id)}
+              className="absolute inset-0 z-0"
+              aria-label={`Play ${mode.tagline}`}
+            />
+
+            <div className="relative z-10 pointer-events-none">
+              <div className="flex items-start justify-between mb-5">
+                <div
+                  className={`p-2.5 rounded-xl ${mode.tint} ${mode.accent}
+                    transition-transform duration-300 ease-spring group-hover:scale-110`}
+                >
+                  {mode.icon}
+                </div>
+                <div
+                  className={`flex items-center gap-1.5 text-xs font-semibold ${mode.accent}
+                    opacity-0 -translate-x-2 transition-all duration-300
+                    group-hover:opacity-100 group-hover:translate-x-0`}
+                >
+                  Play <ArrowRight size={14} />
+                </div>
               </div>
-              <div
-                className={`flex items-center gap-1.5 text-xs font-semibold ${mode.accent}
-                  opacity-0 -translate-x-2 transition-all duration-300
-                  group-hover:opacity-100 group-hover:translate-x-0`}
-              >
-                Play <ArrowRight size={14} />
+
+              <div className={`text-2xl md:text-3xl mb-1 ${mode.accent} ${mode.font}`}>
+                {mode.name}
               </div>
+              <div className="text-[10px] text-ink-muted uppercase tracking-[0.2em] mb-3">
+                {mode.tagline}
+              </div>
+
+              <p className="text-ink-muted text-sm leading-relaxed mb-4">{mode.description}</p>
             </div>
 
-            <div className={`text-2xl md:text-3xl mb-1 ${mode.accent} ${mode.font}`}>
-              {mode.name}
-            </div>
-            <div className="text-[10px] text-ink-muted uppercase tracking-[0.2em] mb-3">
-              {mode.tagline}
-            </div>
+            <div className="relative z-20 flex items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5 text-[11px] text-ink-muted/70 pointer-events-none">
+                <Users size={12} />
+                {mode.players}
+              </span>
 
-            <p className="text-ink-muted text-sm leading-relaxed mb-4">{mode.description}</p>
-
-            <div className="flex items-center gap-1.5 text-[11px] text-ink-muted/70">
-              <Users size={12} />
-              {mode.players}
+              <button
+                onClick={() => setGuideFor(mode.id)}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold
+                  text-ink-muted hover:text-ink transition-colors"
+              >
+                <HelpCircle size={13} />
+                How it works
+              </button>
             </div>
 
             {/* Accent rule that draws itself in on hover. */}
@@ -147,9 +173,13 @@ export default function ModePicker() {
               className={`absolute bottom-0 left-0 h-px w-0 bg-current ${mode.accent}
                 opacity-60 transition-all duration-500 ease-out-expo group-hover:w-full`}
             />
-          </button>
+          </div>
         ))}
       </div>
+
+      {guideFor && (
+        <ModeGuide modeId={guideFor} isOpen onClose={() => setGuideFor(null)} />
+      )}
     </div>
   );
 }

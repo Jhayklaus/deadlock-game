@@ -3,6 +3,7 @@ import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
 import Timer from './Timer';
 import CheatSheet from './CheatSheet';
+import { HowToPlayButton } from './ModeGuide';
 import { LogOut, AlertTriangle, X, Crown } from 'lucide-react';
 import type { GameModeId } from '../lib/types';
 
@@ -22,12 +23,13 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { error, hostId, gameMode, phase, round } = useGameStore(state => ({
+  const { error, hostId, gameMode, phase, round, uiScreen } = useGameStore(state => ({
     error: state.error,
     hostId: state.hostId,
     gameMode: state.gameMode,
     phase: state.phase,
     round: state.round,
+    uiScreen: state.uiScreen,
   }));
 
   const showExitButton = !!hostId;
@@ -72,7 +74,16 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           )}
 
-          <CheatSheet />
+          {/* Walkthrough for the active mode — also shows itself the first
+              time a player reaches a lobby for a mode they have not seen. */}
+          <HowToPlayButton
+            modeId={gameMode}
+            autoOpenInLobby={uiScreen === 'in_lobby' && phase === 'lobby'}
+          />
+
+          {/* The role cheat sheet lists Mafia roles, so it only belongs in
+              classic. It was previously shown in every mode. */}
+          {gameMode === 'classic_mafia' && <CheatSheet />}
 
           {showExitButton && (
             <button

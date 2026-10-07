@@ -45,14 +45,24 @@ export function Timer({ className }: TimerProps) {
 
   if (timeLeft === null) return null;
 
+  const urgent = timeLeft <= 10;
+
   return (
-    <div className={clsx(
-      "px-4 py-2 rounded-lg font-mono text-xl font-bold border transition-all duration-300 flex items-center gap-3",
-      timeLeft <= 10 ? "bg-red-500/20 text-red-200 border-red-500/50 animate-pulse scale-105" : "bg-slate-800/50 text-white border-slate-700/50",
-      className
-    )}>
-      <Clock size={20} className={clsx(timeLeft <= 10 ? "text-red-400" : "text-slate-400")} />
-      <span>
+    <div
+      role="timer"
+      aria-live="off"
+      className={clsx(
+        'px-4 py-2 rounded-full border backdrop-blur-xl flex items-center gap-2.5',
+        'transition-all duration-300 ease-out-expo',
+        urgent
+          ? 'bg-danger/15 text-ink border-danger/50 animate-pulse-glow'
+          : 'bg-elevated/70 text-ink border-edge/60',
+        className
+      )}
+    >
+      <Clock size={16} className={urgent ? 'text-danger' : 'text-ink-muted'} />
+      {/* `tabular` keeps the digits from jittering as the count ticks down. */}
+      <span className="text-lg font-semibold tabular leading-none">
         {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
       </span>
     </div>

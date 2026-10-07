@@ -52,7 +52,7 @@ export default function PreJoinCard() {
       </button>
 
       <Card variant="glass" padding="lg" className="relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-current to-transparent opacity-50" style={{ color: 'var(--color-accent, #dc2626)' }} />
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-current to-transparent opacity-50" style={{ color: 'rgb(var(--accent))' }} />
 
         {/* Mode badge */}
         <div className="text-center mb-8">

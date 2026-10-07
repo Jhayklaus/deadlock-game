@@ -2,36 +2,39 @@ import React from 'react';
 import { clsx } from 'clsx';
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
-  variant?: 'default' | 'glass' | 'interactive' | 'outline';
+  variant?: 'default' | 'glass' | 'interactive' | 'outline' | 'accent';
   padding?: 'none' | 'sm' | 'md' | 'lg';
 }
 
-export const Card = ({ 
-  className, 
-  variant = 'default', 
+export const Card = ({
+  className,
+  variant = 'default',
   padding = 'md',
-  children, 
-  ...props 
+  children,
+  ...props
 }: CardProps) => {
-  const baseStyles = "rounded-xl overflow-hidden transition-all duration-300";
-  
+  const baseStyles = 'rounded-2xl transition-all duration-300 ease-out-expo';
+
   const variants = {
-    default: "bg-slate-900 border border-slate-800 shadow-xl",
-    glass: "bg-slate-900/60 backdrop-blur-md border border-white/10 shadow-2xl",
-    interactive: "bg-slate-900/80 border border-slate-700 hover:border-slate-500 hover:bg-slate-800 cursor-pointer hover:shadow-lg hover:-translate-y-1 active:scale-95",
-    outline: "bg-transparent border-2 border-slate-800 border-dashed"
+    default: 'bg-elevated/80 border border-edge/60 shadow-lg edge-light',
+    glass: 'bg-elevated/50 backdrop-blur-xl border border-ink/10 shadow-xl edge-light',
+    interactive:
+      'bg-elevated/70 border border-edge/60 hover:border-accent/50 hover:bg-surface/60 ' +
+      'cursor-pointer hover:-translate-y-0.5 hover:shadow-accent active:scale-[0.99] edge-light',
+    outline: 'bg-transparent border border-dashed border-edge/70',
+    accent: 'bg-accent/[0.07] border border-accent/30 shadow-accent-sm',
   };
 
   const paddings = {
-    none: "",
-    sm: "p-3",
-    md: "p-5",
-    lg: "p-8"
+    none: '',
+    sm: 'p-3',
+    md: 'p-5',
+    lg: 'p-7',
   };
 
   return (
-    <div 
-      className={clsx(baseStyles, variants[variant], paddings[padding], className)} 
+    <div
+      className={clsx(baseStyles, variants[variant], paddings[padding], className)}
       {...props}
     >
       {children}
@@ -40,19 +43,15 @@ export const Card = ({
 };
 
 export const CardHeader = ({ className, children }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={clsx("mb-4 border-b border-white/5 pb-4", className)}>
-    {children}
-  </div>
+  <div className={clsx('mb-4 border-b border-edge/40 pb-4', className)}>{children}</div>
 );
 
 export const CardTitle = ({ className, children }: React.HTMLAttributes<HTMLHeadingElement>) => (
-  <h3 className={clsx("text-lg font-bold font-creepster tracking-wide text-slate-100", className)}>
+  <h3 className={clsx('text-base font-heading font-semibold tracking-tight text-ink', className)}>
     {children}
   </h3>
 );
 
 export const CardContent = ({ className, children }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={clsx("text-slate-300", className)}>
-    {children}
-  </div>
+  <div className={clsx('text-ink-muted text-sm leading-relaxed', className)}>{children}</div>
 );

@@ -1,7 +1,7 @@
 import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
 import { GameSettings } from '../lib/types';
-import { Settings, Clock, Users } from 'lucide-react';
+import { Settings, Clock, Users, Gavel } from 'lucide-react';
 import { Input } from './ui/Input';
 import { VoiceRoomSetting } from './VoiceRoom';
 import { clsx } from 'clsx';
@@ -66,6 +66,56 @@ export default function GameSettingsUI() {
 
       <div className="space-y-8">
         <VoiceRoomSetting />
+
+        {isClassic && (
+          <div className="space-y-3">
+            <h4 className="font-semibold text-ink-muted border-b border-edge/50 pb-2 flex items-center gap-2 text-xs uppercase tracking-wider">
+              <Gavel size={14} /> Trial
+            </h4>
+
+            <label className="flex items-center justify-between gap-4 p-3 rounded-xl border border-edge/60 bg-base/40 cursor-pointer">
+              <span>
+                <span className="block text-sm font-semibold text-ink">Trial before elimination</span>
+                <span className="block text-xs text-ink-muted mt-0.5">
+                  The accused gets to defend themselves, then the town votes guilty or innocent.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.trialEnabled !== false}
+                onChange={e => networkManager.updateSettings({ ...settings, trialEnabled: e.target.checked })}
+                className="w-5 h-5 shrink-0 accent-current text-accent cursor-pointer"
+              />
+            </label>
+
+            {settings.trialEnabled !== false && (
+              <div className="grid grid-cols-2 gap-4">
+                {([
+                  { label: 'Defense', key: 'defenseDuration', min: 10, max: 120 },
+                  { label: 'Verdict', key: 'verdictDuration', min: 10, max: 120 },
+                ] as const).map(t => (
+                  <div key={t.key} className="space-y-2">
+                    <label className="text-xs text-ink-muted font-bold uppercase">{t.label}</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={t.min}
+                        max={t.max}
+                        step={5}
+                        value={(settings[t.key] as number) ?? 30}
+                        onChange={e => updateSetting(t.key, parseInt(e.target.value))}
+                        className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer"
+                      />
+                      <div className="text-right text-sm font-mono font-bold w-12 text-ink-muted">
+                        {(settings[t.key] as number) ?? 30}s
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Timers */}
         <div className="space-y-6">

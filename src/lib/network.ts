@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { useGameStore } from './store';
-import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId, GameSettings, Role, NightActionType, ClassicWinner } from './types';
+import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId, GameSettings, Role, NightActionType, ClassicWinner, Verdict } from './types';
 import { isTownRole, isMafiaRole } from './types';
 import { distributeRoles } from './gameLogic';
 import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from './bots';
@@ -45,6 +45,9 @@ class NetworkManager {
 
   // Host state for day votes
   private dayVotes: Record<PlayerId, PlayerId | null> = {};
+
+  /** Juror verdicts for the trial in progress. */
+  private trialVerdicts: Record<PlayerId, Verdict> = {};
 
   // Host state for Last Wills
   private lastWills: Record<PlayerId, string> = {};
@@ -147,6 +150,12 @@ class NetworkManager {
                   break;
               case 'voting':
                   this.resolveVotingPhase();
+                  break;
+              case 'trial_defense':
+                  this.startTrialVerdict();
+                  break;
+              case 'trial_verdict':
+                  this.resolveTrialVerdict();
                   break;
               case 'elimination_reveal':
                   this.startNightPhase();
@@ -1105,7 +1114,7 @@ class NetworkManager {
               if (!store.players[bot.id]?.isAlive) return;
 
               const modeRole = this.modeRoles[bot.id] || '';
-              const targetId = await getBotDayVote(bot.id, store.players, chatHistory, modeRole);
+              const targetId = await getBotDayVote(bot.id, store.players, chatHistory, modeRole, store.allRoles || undefined);
               this.processVote(bot.id, targetId);
           }, delay);
       });
@@ -1167,140 +1176,257 @@ class NetworkManager {
       store.setVoteCounts(voteCounts);
   }
 
+  /**
+   * Tallies the day vote.
+   *
+   * With trials enabled the leading candidate is only *nominated* — they get a
+   * defense and a jury verdict before anything happens to them. With trials
+   * off, the old behaviour stands and the vote eliminates directly.
+   */
   private resolveVotingPhase() {
       const store = useGameStore.getState();
-      
-      // Calculate results
+
       const voteCounts: Record<string, number> = {};
       let skipVotes = 0;
-      
-      // Count explicit votes
+
       Object.values(this.dayVotes).forEach(tid => {
-          if (tid) {
-              voteCounts[tid] = (voteCounts[tid] || 0) + 1;
-          } else {
-              skipVotes++; // Explicit skip
-          }
+          if (tid) voteCounts[tid] = (voteCounts[tid] || 0) + 1;
+          else skipVotes++;
       });
 
-      // Count implicit skips (alive players who didn't vote)
+      // Players who never voted count as skips.
       const alivePlayers = Object.values(store.players).filter(p => p.isAlive);
-      const totalVotes = Object.keys(this.dayVotes).length;
-      const missingVotes = alivePlayers.length - totalVotes;
-      skipVotes += missingVotes;
+      skipVotes += alivePlayers.length - Object.keys(this.dayVotes).length;
 
-      // Find winner
-      let eliminatedId: string | null = null;
       let maxVotes = 0;
-      let winners: string[] = []; // Can include 'SKIP'
-
-      // Check candidates
+      let winners: string[] = [];
       Object.entries(voteCounts).forEach(([id, count]) => {
-          if (count > maxVotes) {
-              maxVotes = count;
-              winners = [id];
-          } else if (count === maxVotes) {
-              winners.push(id);
-          }
+          if (count > maxVotes) { maxVotes = count; winners = [id]; }
+          else if (count === maxVotes) { winners.push(id); }
       });
 
-      // Check SKIP
-      if (skipVotes > maxVotes) {
-          maxVotes = skipVotes;
-          winners = ['SKIP'];
-      } else if (skipVotes === maxVotes) {
-          winners.push('SKIP');
-      }
+      if (skipVotes > maxVotes) { maxVotes = skipVotes; winners = ['SKIP']; }
+      else if (skipVotes === maxVotes) { winners.push('SKIP'); }
 
-      let resultText = '';
+      const nominated = winners.length === 1 && winners[0] !== 'SKIP' ? winners[0] : null;
 
-      // Logic: If tie or SKIP wins, no one dies.
-      // If single winner and NOT SKIP, they die.
-      if (winners.length === 1 && winners[0] !== 'SKIP') {
-          eliminatedId = winners[0];
-          const name = store.players[eliminatedId].name;
-          const role = (store.allRoles || {})[eliminatedId];
-          const lastWill = this.lastWills[eliminatedId];
-          resultText = `The town has decided to eliminate ${name}.`; 
-          
-          store.updatePlayer(eliminatedId, { isAlive: false, lastWill, role });
-          this.broadcastPlayerUpdate();
-
-          // Send specific death reason
-          this.sendDeathInfo(eliminatedId, "You were eliminated");
-
+      if (!nominated) {
+          const resultText = winners.includes('SKIP') && winners.length === 1
+              ? `The town decided to skip voting with ${maxVotes} votes.`
+              : `The vote ended in a tie or skip majority (${maxVotes} votes). No one was voted out.`;
           this.broadcastSystemMessage(resultText);
-          if (lastWill) {
-            this.broadcastSystemMessage(`Last Will of ${name}: "${lastWill}"`);
-          }
-
-          // A lynched Jester wins outright, immediately.
-          if (role === 'jester') {
-              this.neutralWinners.add(eliminatedId);
-              const msg: NetworkMessage = {
-                  type: 'GAME_OVER',
-                  senderId: store.myId,
-                  payload: {
-                      winner: 'jester',
-                      roles: store.allRoles || {},
-                      alsoWon: [eliminatedId],
-                  }
-              };
-              this.broadcast(msg);
-              store.setGameOver('jester', store.allRoles || {});
-              store.setAlsoWon([eliminatedId]);
-              return;
-          }
-
-          // An Executioner whose mark is lynched banks their win and keeps
-          // playing — the game carries on around them.
-          Object.entries(this.executionerTargets).forEach(([execId, markId]) => {
-              if (markId !== eliminatedId || this.neutralWinners.has(execId)) return;
-              this.neutralWinners.add(execId);
-              this.sendPrivateSystemMessage(
-                  execId,
-                  'Your mark has been lynched. Your work here is done — you have won, whatever happens next.'
-              );
-          });
-      } else {
-          // Tie or Skip wins
-      if (winners.includes('SKIP') && winners.length === 1) {
-          resultText = `The town decided to skip voting with ${maxVotes} votes.`;
-      } else {
-          resultText = `The vote ended in a tie or skip majority (${maxVotes} votes). No one was voted out.`;
+          this.enterClassicReveal(null, resultText);
+          return;
       }
-      this.broadcastSystemMessage(resultText);
+
+      if (store.settings.trialEnabled !== false) {
+          this.startTrialDefense(nominated);
+          return;
+      }
+
+      this.executePlayer(nominated, 'The town has decided to eliminate');
   }
 
-  // Inject elimination info into chat for context
-  if (eliminatedId) {
-    const role = store.allRoles?.[eliminatedId];
-    if (role) {
-      // We don't broadcast this to players (they see the reveal screen), 
-      // but we add it to the message store so bots "remember" it in their chat history context.
-      // Actually, let's just broadcast a system message about the role reveal so everyone has it in chat log.
-      const revealMsg = `${store.players[eliminatedId].name} was ${role}.`;
-      this.broadcastSystemMessage(revealMsg);
-    }
-  }
+  // ── Trial ───────────────────────────────────────────────────────────────────
 
-  if (this.checkWinCondition()) return;
-
-      // Start Elimination Reveal Phase
-      const eliminationResult = { eliminatedId, resultText };
-      const duration = 8000; // 8 seconds for reveal animation
+  /** The accused gets the floor before the jury decides. */
+  private startTrialDefense(accusedId: string) {
+      const store = useGameStore.getState();
+      const duration = (store.settings.defenseDuration ?? 30) * 1000;
       const timerEnd = Date.now() + duration;
+      const name = store.players[accusedId]?.name ?? 'The accused';
 
-      const msg: NetworkMessage = {
+      this.trialVerdicts = {};
+      this.broadcastSystemMessage(`${name} stands accused. They have ${Math.round(duration / 1000)} seconds to defend themselves.`);
+
+      this.broadcast({
           type: 'PHASE_CHANGE',
           senderId: store.myId,
-          payload: { 
-              phase: 'elimination_reveal',
-              payload: { eliminationResult },
-              timerEnd
-          }
-      };
-      this.broadcast(msg);
+          payload: { phase: 'trial_defense', timerEnd, payload: { accusedId } }
+      });
+      store.setPhase('trial_defense');
+      store.setAccused(accusedId);
+      store.setMyVerdict(null);
+      store.setVerdictCounts({ guilty: 0, innocent: 0, cast: 0, total: 0 });
+      store.setTimerEnd(timerEnd);
+
+      setTimeout(() => this.handlePhaseTimeout('trial_defense'), duration);
+  }
+
+  /** Jurors return guilty / innocent / abstain. */
+  private startTrialVerdict() {
+      const store = useGameStore.getState();
+      const accusedId = store.accusedId;
+      if (!accusedId) { this.startNightPhase(); return; }
+
+      const duration = (store.settings.verdictDuration ?? 30) * 1000;
+      const timerEnd = Date.now() + duration;
+
+      this.broadcastSystemMessage('The defense rests. Jurors, return your verdict.');
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'trial_verdict', timerEnd, payload: { accusedId } }
+      });
+      store.setPhase('trial_verdict');
+      store.setTimerEnd(timerEnd);
+
+      this.handleBotVerdicts(accusedId);
+      setTimeout(() => this.handlePhaseTimeout('trial_verdict'), duration);
+  }
+
+  /** Public: called by the verdict UI. */
+  sendVerdict(verdict: Verdict) {
+      const store = useGameStore.getState();
+      store.setMyVerdict(verdict);
+
+      if (store.myId === store.hostId) {
+          this.processVerdict(store.myId, verdict);
+      } else if (store.hostId) {
+          this.sendMessage(store.hostId, {
+              type: 'VERDICT',
+              senderId: store.myId,
+              payload: { verdict }
+          });
+      }
+  }
+
+  private processVerdict(voterId: string, verdict: Verdict) {
+      const store = useGameStore.getState();
+      // The accused cannot vote on their own fate, and the dead have no say.
+      if (voterId === store.accusedId) return;
+      if (!store.players[voterId]?.isAlive) return;
+
+      this.trialVerdicts[voterId] = verdict;
+      this.broadcastVerdictTally();
+  }
+
+  private broadcastVerdictTally() {
+      const store = useGameStore.getState();
+      const jurors = Object.values(store.players)
+          .filter(p => p.isAlive && p.id !== store.accusedId).length;
+
+      // The Mayor's vote carries double weight here too.
+      const weigh = (voterId: string) =>
+          (store.allRoles || {})[voterId] === 'mayor' ? 2 : 1;
+
+      let guilty = 0;
+      let innocent = 0;
+      Object.entries(this.trialVerdicts).forEach(([voterId, v]) => {
+          if (v === 'guilty') guilty += weigh(voterId);
+          else if (v === 'innocent') innocent += weigh(voterId);
+      });
+
+      const counts = { guilty, innocent, cast: Object.keys(this.trialVerdicts).length, total: jurors };
+      this.broadcast({ type: 'VERDICT_UPDATE', senderId: store.myId, payload: counts });
+      store.setVerdictCounts(counts);
+  }
+
+  private resolveTrialVerdict() {
+      const store = useGameStore.getState();
+      const accusedId = store.accusedId;
+      if (!accusedId) { this.startNightPhase(); return; }
+
+      this.broadcastVerdictTally();
+      const { guilty, innocent } = useGameStore.getState().verdictCounts;
+      const name = store.players[accusedId]?.name ?? 'The accused';
+
+      // A tie acquits — the town has to be sure.
+      if (guilty > innocent) {
+          this.broadcastSystemMessage(`Guilty, ${guilty} to ${innocent}. ${name} is eliminated.`);
+          store.setAccused(null);
+          this.executePlayer(accusedId, 'The town found them guilty:');
+          return;
+      }
+
+      this.broadcastSystemMessage(
+          `Not guilty, ${innocent} to ${guilty}. ${name} walks free — and night falls.`
+      );
+      store.setAccused(null);
+      this.enterClassicReveal(null, `${name} was found not guilty.`);
+  }
+
+  private handleBotVerdicts(accusedId: string) {
+      const store = useGameStore.getState();
+      const bots = Object.values(store.players).filter(p => p.isBot && p.isAlive && p.id !== accusedId);
+      const duration = (store.settings.verdictDuration ?? 30) * 1000;
+
+      bots.forEach(bot => {
+          setTimeout(() => {
+              if (useGameStore.getState().phase !== 'trial_verdict') return;
+              const role = (store.allRoles || {})[bot.id];
+              const accusedRole = (store.allRoles || {})[accusedId];
+
+              // Evil bots protect their own; everyone else leans on the vote
+              // that put the accused here in the first place.
+              let verdict: Verdict;
+              if (isMafiaRole(role) && isMafiaRole(accusedRole)) verdict = 'innocent';
+              else if (role === 'serial_killer' && accusedRole === 'serial_killer') verdict = 'innocent';
+              else verdict = Math.random() < 0.65 ? 'guilty' : 'innocent';
+
+              this.processVerdict(bot.id, verdict);
+          }, Math.random() * duration * 0.7 + 500);
+      });
+  }
+
+  /**
+   * Kills a player by town decision and handles everything that follows:
+   * the role reveal, a lynched Jester's outright win, and any Executioner
+   * whose mark this was.
+   */
+  private executePlayer(eliminatedId: string, verb: string) {
+      const store = useGameStore.getState();
+      const name = store.players[eliminatedId]?.name ?? 'Unknown';
+      const role = (store.allRoles || {})[eliminatedId];
+      const lastWill = this.lastWills[eliminatedId];
+      const resultText = `${verb} ${name}.`;
+
+      store.updatePlayer(eliminatedId, { isAlive: false, lastWill, role });
+      this.broadcastPlayerUpdate();
+      this.sendDeathInfo(eliminatedId, 'You were eliminated by the town.');
+      this.broadcastSystemMessage(resultText);
+      if (lastWill) this.broadcastSystemMessage(`Last Will of ${name}: "${lastWill}"`);
+      if (role) this.broadcastSystemMessage(`${name} was ${role.replace('_', ' ')}.`);
+
+      // A lynched Jester wins outright, immediately.
+      if (role === 'jester') {
+          this.neutralWinners.add(eliminatedId);
+          this.broadcast({
+              type: 'GAME_OVER',
+              senderId: store.myId,
+              payload: { winner: 'jester', roles: store.allRoles || {}, alsoWon: [eliminatedId] }
+          });
+          store.setGameOver('jester', store.allRoles || {});
+          store.setAlsoWon([eliminatedId]);
+          return;
+      }
+
+      // An Executioner whose mark is lynched banks their win and plays on.
+      Object.entries(this.executionerTargets).forEach(([execId, markId]) => {
+          if (markId !== eliminatedId || this.neutralWinners.has(execId)) return;
+          this.neutralWinners.add(execId);
+          this.sendPrivateSystemMessage(
+              execId,
+              'Your mark has been lynched. Your work here is done — you have won, whatever happens next.'
+          );
+      });
+
+      if (this.checkWinCondition()) return;
+      this.enterClassicReveal(eliminatedId, resultText);
+  }
+
+  /** Shows the day's outcome, then night falls. */
+  private enterClassicReveal(eliminatedId: string | null, resultText: string) {
+      const store = useGameStore.getState();
+      const eliminationResult = { eliminatedId, resultText };
+      const duration = 8000;
+      const timerEnd = Date.now() + duration;
+
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'elimination_reveal', payload: { eliminationResult }, timerEnd }
+      });
       store.setPhase('elimination_reveal');
       store.setEliminationResult(eliminationResult);
       store.setTimerEnd(timerEnd);
@@ -1602,6 +1728,13 @@ class NetworkManager {
             if (typeof message.payload.payload?.round === 'number') {
                 store.setRound(message.payload.payload.round);
             }
+            if (message.payload.payload?.accusedId) {
+                store.setAccused(message.payload.payload.accusedId);
+                if (message.payload.phase === 'trial_defense') {
+                    store.setMyVerdict(null);
+                    store.setVerdictCounts({ guilty: 0, innocent: 0, cast: 0, total: 0 });
+                }
+            }
             if (message.payload.timerEnd) {
               store.setTimerEnd(message.payload.timerEnd);
             }
@@ -1623,6 +1756,16 @@ class NetworkManager {
           if (store.myId === store.hostId) {
               this.processVote(message.senderId, message.payload.targetId);
           }
+          break;
+
+      case 'VERDICT':
+          if (store.myId === store.hostId) {
+              this.processVerdict(message.senderId, message.payload.verdict);
+          }
+          break;
+
+      case 'VERDICT_UPDATE':
+          store.setVerdictCounts(message.payload);
           break;
           
       case 'VOTE_UPDATE':

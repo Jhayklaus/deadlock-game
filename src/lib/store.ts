@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage, GameModeId, ModeRoleId, UiScreen, ClassicWinner } from './types';
+import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage, GameModeId, ModeRoleId, UiScreen, ClassicWinner, Verdict } from './types';
 
 interface GameActions {
   setMyId: (id: PlayerId) => void;
@@ -44,10 +44,16 @@ interface GameActions {
   setAllModeRoles: (roles: Record<PlayerId, string>) => void;
   setRound: (round: number) => void;
   setAlsoWon: (ids: PlayerId[]) => void;
+  setAccused: (id: PlayerId | null) => void;
+  setVerdictCounts: (counts: { guilty: number; innocent: number; cast: number; total: number }) => void;
+  setMyVerdict: (verdict: Verdict | null) => void;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
   voiceRoomUrl: null,
+  trialEnabled: true,
+  defenseDuration: 30,
+  verdictDuration: 30,
   dayDuration: 180,
   discussionDuration: 60,
   votingDuration: 60,
@@ -110,6 +116,9 @@ const initialState: GameState = {
   allModeRoles: {},
   round: 1,
   alsoWon: [],
+  accusedId: null,
+  verdictCounts: { guilty: 0, innocent: 0, cast: 0, total: 0 },
+  myVerdict: null,
 };
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -201,6 +210,9 @@ export const useGameStore = create<GameState & GameActions>()(
           allModeRoles: {},
           round: 1,
           alsoWon: [],
+          accusedId: null,
+          verdictCounts: { guilty: 0, innocent: 0, cast: 0, total: 0 },
+          myVerdict: null,
           uiScreen: 'in_lobby' as UiScreen,
         };
       }),
@@ -232,6 +244,9 @@ export const useGameStore = create<GameState & GameActions>()(
       setAllModeRoles: (allModeRoles) => set({ allModeRoles }),
       setRound: (round) => set({ round }),
       setAlsoWon: (alsoWon) => set({ alsoWon }),
+      setAccused: (accusedId) => set({ accusedId }),
+      setVerdictCounts: (verdictCounts) => set({ verdictCounts }),
+      setMyVerdict: (myVerdict) => set({ myVerdict }),
     }),
     {
       name: 'tno-game-storage',

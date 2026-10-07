@@ -5,6 +5,7 @@ import { soundManager } from './lib/sound';
 import Layout from './components/Layout';
 import NightPhase from './components/NightPhase';
 import EliminationReveal from './components/EliminationReveal';
+import TrialPhase from './components/TrialPhase';
 import ModePicker from './components/screens/ModePicker';
 import PreJoinCard from './components/screens/PreJoinCard';
 import { getScreens } from './components/screens/screenRegistry';
@@ -78,6 +79,7 @@ function App() {
         {phase === 'role_assignment' && <RoleReveal />}
         {phase === 'night' && <NightPhase />}
         {(phase === 'day_discussion' || phase === 'voting') && <DayPhase />}
+        {(phase === 'trial_defense' || phase === 'trial_verdict') && <TrialPhase />}
         {phase === 'elimination_reveal' && <EliminationReveal />}
         {phase === 'impostor_guess' && ImpostorGuess && <ImpostorGuess />}
         {phase === 'game_over' && <GameOver />}

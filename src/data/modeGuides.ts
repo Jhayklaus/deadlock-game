@@ -81,7 +81,20 @@ const classicMafia: ModeGuide = {
       icon: 'vote',
       title: 'Vote someone out',
       body:
-        'When discussion ends, everyone votes. Whoever takes the most votes is eliminated and their role is revealed. You can also skip — a tie or a skip majority means nobody goes. Then night falls again and the cycle repeats.',
+        'When discussion ends, everyone votes. Whoever takes the most votes is put on trial. You can also skip — a tie or a skip majority means nobody goes to trial at all, and night falls.',
+    },
+    {
+      icon: 'skull',
+      title: 'The trial',
+      body:
+        'The accused gets the floor to defend themselves — claim a role, name a suspect, say anything that helps. Then everyone else votes guilty, innocent or abstain. Only a guilty majority eliminates them, and a tie acquits, so the town has to be sure. The Mayor\u2019s vote counts double here too. Hosts can switch trials off for a faster game.',
+      example: {
+        label: 'A verdict',
+        lines: [
+          'Guilty 4  \u2013  Innocent 3   \u2192  eliminated',
+          'Guilty 3  \u2013  Innocent 3   \u2192  walks free',
+        ],
+      },
     },
     {
       icon: 'trophy',

@@ -152,11 +152,11 @@ export async function getBotNightAction(
     Output: JUST the name. No explanations.
   `;
 
-  console.log(`[Bot ${botName}] Generative Night Action...`);
   const responseName = await generateAIResponse(prompt);
-  console.log(`[Bot ${botName}] AI Response: ${responseName}`);
 
-  const target = alivePlayers.find(p => responseName.toLowerCase().includes(p.name.toLowerCase()));
+  const target = responseName
+    ? alivePlayers.find(p => responseName.toLowerCase().includes(p.name.toLowerCase()))
+    : undefined;
 
   if (target) {
     if (actionType === 'CONTROL') {
@@ -178,7 +178,8 @@ export async function getBotDayVote(
   botId: PlayerId,
   players: Record<PlayerId, Player>,
   chatHistory: string = "",
-  modeRole: string = ""
+  modeRole: string = "",
+  allRoles?: Record<PlayerId, Role>
 ): Promise<PlayerId | null> {
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
   if (alivePlayers.length === 0) return null;
@@ -222,14 +223,47 @@ export async function getBotDayVote(
     2. Respond with ONLY the name or SKIP.
   `;
 
-  console.log(`[Bot ${botName}] Generative Day Vote...`);
   const response = await generateAIResponse(prompt);
-  console.log(`[Bot ${botName}] AI Vote: ${response}`);
-  
-  if (response.toUpperCase().includes('SKIP')) return null;
-  
-  const target = alivePlayers.find(p => response.toLowerCase().includes(p.name.toLowerCase()));
-  return target ? target.id : null;
+
+  if (response) {
+    if (response.toUpperCase().includes('SKIP')) return null;
+    const target = alivePlayers.find(p => response.toLowerCase().includes(p.name.toLowerCase()));
+    if (target) return target.id;
+  }
+
+  // No AI, or it produced nothing usable. Decide locally — a bot that always
+  // abstains makes the whole game a chain of skipped votes.
+  return fallbackDayVote(botId, alivePlayers, allRoles);
+}
+
+/**
+ * Built-in voting behaviour, used whenever the AI is unavailable.
+ *
+ * Evil bots avoid their own side; everyone else picks someone at random. A
+ * small chance of abstaining keeps votes from being unnaturally decisive.
+ */
+function fallbackDayVote(
+  botId: PlayerId,
+  alivePlayers: Player[],
+  allRoles?: Record<PlayerId, Role>
+): PlayerId | null {
+  if (alivePlayers.length === 0) return null;
+  if (Math.random() < 0.15) return null; // occasional abstention
+
+  const myRole = allRoles?.[botId];
+  const isEvil = myRole === 'mafia' || myRole === 'framer' || myRole === 'serial_killer';
+
+  let pool = alivePlayers;
+  if (isEvil && allRoles) {
+    const sameSide = (r: Role | undefined) =>
+      myRole === 'serial_killer'
+        ? r === 'serial_killer'
+        : r === 'mafia' || r === 'framer';
+    const outsiders = alivePlayers.filter(p => !sameSide(allRoles[p.id]));
+    if (outsiders.length > 0) pool = outsiders;
+  }
+
+  return pool[Math.floor(Math.random() * pool.length)].id;
 }
 
 export async function getBotChat(
@@ -338,5 +372,37 @@ export async function getBotChat(
   `;
 
   const response = await generateAIResponse(prompt);
-  return response.replace(/"/g, '').trim();
+  if (response) return response.replace(/"/g, '').trim();
+
+  // Without AI, say something plausible rather than nothing — a lobby of
+  // silent bots reads as broken.
+  return fallbackChatLine(phase);
+}
+
+/** Canned filler used when no AI is configured. */
+function fallbackChatLine(phase: string): string {
+  const lines: Record<string, string[]> = {
+    day: [
+      'Anyone got anything solid?',
+      'That was quiet. Too quiet.',
+      'I am not sure about that last vote.',
+      'Who are we looking at today?',
+      'I would rather skip than guess wrong.',
+      'Something about this does not add up.',
+      'Talk to me, people.',
+    ],
+    night: [
+      'Keeping my head down.',
+      'Long night.',
+      'Watch yourselves out there.',
+    ],
+    game_over: [
+      'Well played, everyone.',
+      'I did not see that coming.',
+      'Good game.',
+      'Knew it.',
+    ],
+  };
+  const pool = lines[phase] ?? lines.day;
+  return pool[Math.floor(Math.random() * pool.length)];
 }

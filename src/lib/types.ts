@@ -170,6 +170,8 @@ export type GamePhase =
   | 'night'
   | 'day_discussion'
   | 'voting'
+  | 'trial_defense'    // the accused speaks before the verdict
+  | 'trial_verdict'    // guilty / innocent / abstain
   | 'elimination_reveal'
   | 'impostor_guess'   // v2: word_impostor — voted-out impostor guesses the word
   | 'game_over';
@@ -219,9 +221,22 @@ export interface GameState {
   round: number;
   // Neutral roles that met their own goal, revealed at game over
   alsoWon: PlayerId[];
+  // Trial state (classic mafia)
+  accusedId: PlayerId | null;
+  verdictCounts: { guilty: number; innocent: number; cast: number; total: number };
+  myVerdict: Verdict | null;
 }
 
+/** A juror's call during a trial. */
+export type Verdict = 'guilty' | 'innocent' | 'abstain';
+
 export interface GameSettings {
+  /** Put the accused on trial before eliminating them. Classic Mafia only. */
+  trialEnabled?: boolean;
+  /** Seconds the accused gets to defend themselves. */
+  defenseDuration?: number;
+  /** Seconds the jury gets to return a verdict. */
+  verdictDuration?: number;
   /**
    * External voice room (Meet / Zoom / Discord) the host pastes in the lobby.
    * Null when none is set. Muting is on the honour system here — the game
@@ -284,6 +299,8 @@ export type MessageType =
   | 'KICK_PLAYER'
   | 'TYPING'
   | 'SETTINGS_UPDATE' // host → all: live lobby settings change
+  | 'VERDICT'         // juror → host
+  | 'VERDICT_UPDATE'  // host → all: running tally
   | 'MODE_ASSIGN'   // v2: per-player mode payload (sent individually, never broadcast)
   | 'MODE_ACTION'   // v2: player → host generic action
   | 'MODE_RESULT';  // v2: host → all result broadcast
@@ -430,6 +447,22 @@ export interface SettingsUpdateMessage extends BaseMessage {
   };
 }
 
+export interface VerdictMessage extends BaseMessage {
+  type: 'VERDICT';
+  payload: { verdict: Verdict };
+}
+
+export interface VerdictUpdateMessage extends BaseMessage {
+  type: 'VERDICT_UPDATE';
+  payload: {
+    guilty: number;
+    innocent: number;
+    /** How many jurors have returned a verdict so far. */
+    cast: number;
+    total: number;
+  };
+}
+
 export interface TypingMessage extends BaseMessage {
   type: 'TYPING';
   payload: {
@@ -486,6 +519,8 @@ export type NetworkMessage =
   | KickPlayerMessage
   | TypingMessage
   | SettingsUpdateMessage
+  | VerdictMessage
+  | VerdictUpdateMessage
   | ModeAssignMessage
   | ModeActionMessage
   | ModeResultMessage;

@@ -377,7 +377,7 @@ const deadlock: ModeGuide = {
       icon: 'vote',
       title: 'Calling everyone together',
       body:
-        'Find a body and you can report it. You can also call one emergency meeting per game from anywhere, for when something is obviously wrong. Either way everyone is pulled back to the bridge and you argue it out and vote \u2014 exactly like a round of Mafia. The meeting shows where every player was standing when it was called, which is the hard evidence in the room. Then it is back to the station.',
+        'Find a body and you can report it. You can also call one emergency meeting per game from anywhere, for when something is obviously wrong. Either way everyone is pulled back to the bridge and you argue it out and vote \u2014 exactly like a round of Mafia. Nothing is recorded for you: what you saw on the map before the meeting is all the evidence there is, so pay attention while you are out there. Then it is back to the station.',
     },
     {
       icon: 'trophy',

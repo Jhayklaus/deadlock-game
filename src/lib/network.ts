@@ -1511,7 +1511,6 @@ class NetworkManager {
           tasksCompleted: Number(this.hostPrivateState.tasksCompleted ?? 0),
           tasksTotal: Number(this.hostPrivateState.tasksTotal ?? 0),
           sabotage: this.dlRead<ActiveSabotage | null>('sabotageJson', null),
-          lastSeen: this.dlRead<Record<string, string>>('lastSeenJson', {}),
       };
       this.broadcast({ type: 'DEADLOCK_STATE', senderId: store.myId, payload });
       store.setDeadlock(payload);
@@ -1776,12 +1775,6 @@ class NetworkManager {
       } else {
           this.broadcastSystemMessage(`${callerName} called an emergency meeting.`);
       }
-
-      // Freeze where everyone was standing before regrouping — this is what
-      // the crew actually argues from, and it is gone the moment they move.
-      const lastSeen = { ...((this.hostPrivateState.positions as Record<string, string>) ?? {}) };
-      this.dlWrite('lastSeenJson', lastSeen);
-      useGameStore.getState().setDeadlock({ lastSeen });
 
       // Bodies are cleared once reported, sabotages stop, and everyone regroups.
       this.dlWrite('bodiesJson', []);

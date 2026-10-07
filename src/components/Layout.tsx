@@ -6,6 +6,7 @@ import CheatSheet from './CheatSheet';
 import { HowToPlayButton } from './ModeGuide';
 import { VoiceRoomBar } from './VoiceRoom';
 import VoiceControl from './VoiceControl';
+import SoundToggle from './SoundToggle';
 import { LogOut, AlertTriangle, X, Crown } from 'lucide-react';
 import type { GameModeId } from '../lib/types';
 
@@ -76,6 +77,8 @@ export default function Layout({ children }: LayoutProps) {
               <span className="text-sm font-semibold text-accent tabular">{round}</span>
             </div>
           )}
+
+          <SoundToggle />
 
           {/* In-app voice, when the server has it configured. Renders
               nothing otherwise. */}

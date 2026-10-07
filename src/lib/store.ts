@@ -103,7 +103,6 @@ const DEFAULT_DEADLOCK = {
   lastMeeting: null,
   sabotage: null,
   sabotageReadyAt: 0,
-  lastSeen: {},
 };
 
 const initialState: GameState = {

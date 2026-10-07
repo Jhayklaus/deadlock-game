@@ -20,9 +20,8 @@ import {
  * keeps their own task list and last known room in front of them.
  */
 export default function Meeting() {
-  const { myId, isAlive, myDeathReason, myModeRoleId, deadlock, players } = useGameStore(state => ({
+  const { myId, isAlive, myDeathReason, myModeRoleId, deadlock } = useGameStore(state => ({
     myId: state.myId,
-    players: state.players,
     isAlive: state.players[state.myId]?.isAlive,
     myDeathReason: state.myDeathReason,
     myModeRoleId: state.myModeRoleId,
@@ -153,40 +152,6 @@ export default function Meeting() {
       </div>
 
       <div className="hidden lg:flex lg:col-span-5 flex-col gap-4 sticky top-6 h-fit">
-        {/* Where everyone was when the meeting was called. This is the hard
-            evidence in the room — without it players are arguing from memory. */}
-        {Object.keys(deadlock.lastSeen).length > 0 && (
-          <Card variant="glass" padding="sm">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-ink-muted mb-2.5 flex items-center gap-1.5">
-              <MapPin size={11} /> Last seen
-            </p>
-            <ul className="space-y-1">
-              {Object.entries(deadlock.lastSeen)
-                .filter(([id]) => players[id])
-                .sort(([, a], [, b]) => a.localeCompare(b))
-                .map(([id, roomId]) => {
-                  const who = players[id];
-                  return (
-                    <li key={id} className="flex items-center justify-between gap-3 text-sm py-0.5">
-                      <span className={clsx(
-                        'truncate',
-                        !who.isAlive ? 'text-ink-muted line-through' : id === myId ? 'text-accent font-medium' : 'text-ink'
-                      )}>
-                        {who.name}{id === myId ? ' (you)' : ''}
-                      </span>
-                      <span className="text-xs text-ink-muted shrink-0">
-                        {getRoom(roomId)?.name ?? roomId}
-                      </span>
-                    </li>
-                  );
-                })}
-            </ul>
-            <p className="text-[11px] text-ink-muted/80 mt-2.5 pt-2.5 border-t border-edge/50">
-              Where everyone stood when the meeting was called.
-            </p>
-          </Card>
-        )}
-
         {/* Your own route, to argue from. */}
         <Card variant="glass" padding="sm">
           <p className="text-[10px] uppercase tracking-[0.2em] text-ink-muted mb-2.5">

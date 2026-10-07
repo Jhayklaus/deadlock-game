@@ -61,6 +61,120 @@ class NetworkManager {
   // Bot Chat Loop
   private botChatInterval: NodeJS.Timeout | null = null;
 
+  /** The room's code, which stays constant even after the host changes. */
+  private roomId: string | null = null;
+
+  /** Periodic snapshot upload, so the room survives losing its host. */
+  private stateSyncInterval: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Everything a replacement host needs to keep running the game.
+   *
+   * This carries every secret in play (roles, secret words, the Executioner's
+   * mark), so the server hands it to the elected successor alone and never to
+   * the room.
+   */
+  private captureHostState() {
+      const store = useGameStore.getState();
+      return {
+          activeModeId: this.activeModeId,
+          hostPrivateState: this.hostPrivateState,
+          modeRoles: this.modeRoles,
+          nightActions: this.nightActions,
+          dayVotes: this.dayVotes,
+          trialVerdicts: this.trialVerdicts,
+          taskCompletions: this.taskCompletions,
+          lastWills: this.lastWills,
+          abilityUses: this.abilityUses,
+          executionerTargets: this.executionerTargets,
+          neutralWinners: [...this.neutralWinners],
+          // Public game state, so the successor's store matches the room.
+          players: store.players,
+          allRoles: store.allRoles,
+          phase: store.phase,
+          settings: store.settings,
+          timerEnd: store.timerEnd,
+          round: store.round,
+          accusedId: store.accusedId,
+          gameMode: store.gameMode,
+      };
+  }
+
+  private restoreHostState(snapshot: ReturnType<NetworkManager['captureHostState']> | null) {
+      if (!snapshot) return;
+      const store = useGameStore.getState();
+
+      this.activeModeId = snapshot.activeModeId ?? 'classic_mafia';
+      this.hostPrivateState = snapshot.hostPrivateState ?? {};
+      this.modeRoles = snapshot.modeRoles ?? {};
+      this.nightActions = snapshot.nightActions ?? emptyNightActions();
+      this.dayVotes = snapshot.dayVotes ?? {};
+      this.trialVerdicts = snapshot.trialVerdicts ?? {};
+      this.taskCompletions = snapshot.taskCompletions ?? {};
+      this.lastWills = snapshot.lastWills ?? {};
+      this.abilityUses = snapshot.abilityUses ?? {};
+      this.executionerTargets = snapshot.executionerTargets ?? {};
+      this.neutralWinners = new Set(snapshot.neutralWinners ?? []);
+
+      if (snapshot.players) store.setPlayers(snapshot.players);
+      if (snapshot.allRoles) store.setAllRoles(snapshot.allRoles);
+      if (snapshot.settings) store.setSettings(snapshot.settings);
+      if (snapshot.gameMode) store.setGameMode(snapshot.gameMode);
+      if (typeof snapshot.round === 'number') store.setRound(snapshot.round);
+      store.setAccused(snapshot.accusedId ?? null);
+  }
+
+  /** Streams state to the server while we are the host. */
+  private startStateSync() {
+      this.stopStateSync();
+      this.stateSyncInterval = setInterval(() => {
+          const store = useGameStore.getState();
+          if (!this.roomId || store.myId !== store.hostId) return;
+          this.socket?.emit('host_state_sync', {
+              roomId: this.roomId,
+              snapshot: this.captureHostState(),
+          });
+      }, 3000);
+  }
+
+  private stopStateSync() {
+      if (this.stateSyncInterval) {
+          clearInterval(this.stateSyncInterval);
+          this.stateSyncInterval = null;
+      }
+  }
+
+  /**
+   * Picks up the game after the previous host dropped out. Restores their
+   * state, then restarts whatever timer the current phase was running — those
+   * live in setTimeout on the host and died with their tab.
+   */
+  private assumeHost(newHostId: string, snapshot: ReturnType<NetworkManager['captureHostState']> | null) {
+      const store = useGameStore.getState();
+      const wasHost = store.myId === store.hostId;
+      store.setHostId(newHostId);
+
+      if (store.myId !== newHostId) {
+          // Just a pointer update for everyone else.
+          return;
+      }
+      if (wasHost) return;
+
+      this.restoreHostState(snapshot);
+      this.startStateSync();
+      this.broadcastSystemMessage('The host disconnected. You are now running the game.');
+      this.broadcastPlayerUpdate();
+
+      const phase = useGameStore.getState().phase;
+      if (phase === 'lobby' || phase === 'game_over') return;
+
+      // Resume the phase clock. If it already expired while authority was
+      // changing hands, resolve immediately rather than stalling the room.
+      const timerEnd = useGameStore.getState().timerEnd;
+      const remaining = timerEnd ? timerEnd - Date.now() : 0;
+      setTimeout(() => this.handlePhaseTimeout(phase), Math.max(0, remaining));
+  }
+
   // Initialize Socket
   initialize(existingId?: string, onOpen?: (id: string) => void) {
     if (this.socket) {
@@ -84,6 +198,7 @@ class NetworkManager {
 
       // Restore Host Timers
       const store = useGameStore.getState();
+      if (!this.roomId && store.hostId) this.roomId = store.hostId;
       if (store.myId === store.hostId && store.timerEnd && store.phase !== 'lobby' && store.phase !== 'game_over') {
           const remaining = store.timerEnd - Date.now();
           console.log(`Restoring host timer for ${store.phase}, remaining: ${remaining}ms`);
@@ -112,6 +227,13 @@ class NetworkManager {
         // We ignore senderId from socket event because it's inside message too, 
         // or we can use it to verify.
         this.handleMessage(message);
+    });
+
+    this.socket.on('host_migrated', ({ roomId, newHostId, snapshot }: {
+        roomId: string; newHostId: string; snapshot: ReturnType<NetworkManager['captureHostState']> | null;
+    }) => {
+        this.roomId = roomId;
+        this.assumeHost(newHostId, snapshot);
     });
 
     this.socket.on('player_left', ({ senderId }: { senderId: string }) => {
@@ -524,6 +646,7 @@ class NetworkManager {
   }
 
   disconnect() {
+    this.stopStateSync();
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
@@ -546,6 +669,10 @@ class NetworkManager {
             isOnline: true,
             isAlive: true,
         });
+        // The room code is this id for the room's whole life, even if the
+        // host changes later.
+        this.roomId = myId;
+        this.startStateSync();
     });
   }
 
@@ -572,6 +699,9 @@ class NetworkManager {
   // Join a game
   joinGame(hostId: string, playerName: string) {
     if (!this.socket) return;
+    // What the player typed is the room code, which may no longer be the id
+    // of whoever is actually hosting.
+    this.roomId = hostId;
     this.socket.emit('join_game', { hostId, playerName });
   }
 
@@ -2192,15 +2322,17 @@ class NetworkManager {
 
   // Broadcast (replaced PeerJS connections loop with Socket.IO broadcast_room)
   private broadcast(message: NetworkMessage) {
-    if (this.socket) {
-        const store = useGameStore.getState();
-        // Only host can broadcast usually, but if client calls this, it should probably fail or send to host?
-        // In this architecture, Client sends to Host, Host broadcasts.
-        // If Host calls broadcast, it sends to room.
-        if (store.myId === store.hostId) {
-             this.socket.emit('broadcast_room', { roomId: store.hostId, message });
-        }
-    }
+    if (!this.socket) return;
+    const store = useGameStore.getState();
+    // Clients send to the host; only the host broadcasts to the room.
+    if (store.myId !== store.hostId) return;
+
+    // Address the ROOM, not the current host. The socket.io room is named
+    // after whoever opened it and keeps that name for life, so after a host
+    // migration `hostId` no longer matches it and broadcasts would vanish
+    // into a room nobody is in.
+    const roomId = this.roomId ?? store.hostId;
+    if (roomId) this.socket.emit('broadcast_room', { roomId, message });
   }
 }
 

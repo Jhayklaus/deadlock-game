@@ -28,7 +28,76 @@ const PORT = process.env.PORT || 3001;
 // Maps for ID resolution
 const userToSocket = new Map(); // userId -> socketId
 const socketToUser = new Map(); // socketId -> userId
-const socketRooms = new Map(); // socketId -> roomId (hostId)
+const socketRooms = new Map(); // socketId -> roomId (current room key)
+
+/**
+ * Host migration.
+ *
+ * All game authority lives in the host's browser, so when that tab closes the
+ * game is unrecoverable for everyone else. To survive that, the host streams a
+ * snapshot of its authoritative state here; if it disappears we elect a
+ * successor and hand them the snapshot so play continues.
+ *
+ * A room keeps its original id even after the host changes, so room codes
+ * players already shared stay valid.
+ */
+const roomHosts = new Map();    // roomId -> current host userId
+const roomState = new Map();    // roomId -> latest snapshot from the host
+const roomMembers = new Map();  // roomId -> [userId] in join order
+
+/** The snapshot holds secrets (roles, words) and goes only to the new host. */
+function rememberMember(roomId, userId) {
+  const members = roomMembers.get(roomId) ?? [];
+  if (!members.includes(userId)) {
+    members.push(userId);
+    roomMembers.set(roomId, members);
+  }
+}
+
+function forgetMember(roomId, userId) {
+  const members = roomMembers.get(roomId);
+  if (!members) return;
+  const next = members.filter(id => id !== userId);
+  if (next.length === 0) roomMembers.delete(roomId);
+  else roomMembers.set(roomId, next);
+}
+
+/** Longest-present player who is still connected, excluding the departing host. */
+function pickSuccessor(roomId, leavingUserId) {
+  const members = roomMembers.get(roomId) ?? [];
+  return members.find(id => id !== leavingUserId && userToSocket.has(id)) ?? null;
+}
+
+function migrateHost(roomId, leavingUserId) {
+  const successor = pickSuccessor(roomId, leavingUserId);
+
+  if (!successor) {
+    // Nobody left to hand it to — drop the room's state rather than leak it.
+    roomHosts.delete(roomId);
+    roomState.delete(roomId);
+    roomMembers.delete(roomId);
+    console.log(`[migrate] room ${roomId} is empty, discarded`);
+    return;
+  }
+
+  roomHosts.set(roomId, successor);
+  console.log(`[migrate] room ${roomId}: ${leavingUserId} -> ${successor}`);
+
+  // The snapshot contains every secret in the game, so it goes to the new
+  // host alone, never to the room.
+  const snapshot = roomState.get(roomId) ?? null;
+  const successorSocket = userToSocket.get(successor);
+  if (successorSocket) {
+    io.to(successorSocket).emit('host_migrated', { roomId, newHostId: successor, snapshot });
+  }
+
+  // Everyone else just needs to know where to send their messages now.
+  (roomMembers.get(roomId) ?? []).forEach(id => {
+    if (id === successor || id === leavingUserId) return;
+    const sock = userToSocket.get(id);
+    if (sock) io.to(sock).emit('host_migrated', { roomId, newHostId: successor, snapshot: null });
+  });
+}
 
 // DeepSeek (via the OpenAI SDK) powers the smart bots.
 //
@@ -99,34 +168,55 @@ io.on('connection', (socket) => {
 
   // Host a game
   socket.on('host_game', (hostId) => {
-    // hostId is the User ID of the host
+    // hostId is the User ID of the host. The room keeps this id for its whole
+    // life, even after the host changes, so shared room codes stay valid.
     console.log(`User ${hostId} hosting game`);
-    
-    socket.join(hostId); // Room name is the Host's User ID
+
+    socket.join(hostId);
     socketRooms.set(socket.id, hostId);
-    
+    roomHosts.set(hostId, hostId);
+    rememberMember(hostId, hostId);
+
     socket.emit('host_success', hostId);
+  });
+
+  /**
+   * The host streams its authoritative state here so the game can survive it
+   * disappearing. Only the current host of that room may write it.
+   */
+  socket.on('host_state_sync', ({ roomId, snapshot }) => {
+    const userId = socketToUser.get(socket.id);
+    if (!userId || roomHosts.get(roomId) !== userId) return;
+    roomState.set(roomId, snapshot);
   });
 
   // Join a game
   socket.on('join_game', ({ hostId, playerName }) => {
-    // Check if room exists (host is connected)
-    const room = io.sockets.adapter.rooms.get(hostId);
+    // `hostId` is the room code the player typed. After a migration the room
+    // keeps that code but is run by someone else, so resolve the real host.
+    const roomId = hostId;
+    const room = io.sockets.adapter.rooms.get(roomId);
     const userId = socketToUser.get(socket.id);
+    const currentHost = roomHosts.get(roomId);
 
-    if (room && room.size > 0) {
-        console.log(`User ${userId} (${playerName}) joining game hosted by ${hostId}`);
-        socket.join(hostId);
-        socketRooms.set(socket.id, hostId);
-        
-        // Notify the host
-        // We need to send to the host's socket.
-        const hostSocketId = userToSocket.get(hostId);
+    if (room && room.size > 0 && currentHost) {
+        console.log(`User ${userId} (${playerName}) joining room ${roomId} (host ${currentHost})`);
+        socket.join(roomId);
+        socketRooms.set(socket.id, roomId);
+        rememberMember(roomId, userId);
+
+        // Tell the joiner who is actually in charge, in case it is not the id
+        // they typed.
+        if (currentHost !== roomId) {
+            socket.emit('host_migrated', { roomId, newHostId: currentHost, snapshot: null });
+        }
+
+        const hostSocketId = userToSocket.get(currentHost);
         if (hostSocketId) {
             io.to(hostSocketId).emit('player_joined', { senderId: userId, name: playerName });
         }
     } else {
-        console.log(`User ${userId} failed to join: ${hostId} (Not found)`);
+        console.log(`User ${userId} failed to join: ${roomId} (Not found)`);
         socket.emit('error_message', { message: 'Game not found or host disconnected' });
     }
   });
@@ -155,17 +245,24 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const userId = socketToUser.get(socket.id);
     console.log('Socket disconnected:', socket.id, userId);
-    
+
     const roomId = socketRooms.get(socket.id);
-    if (roomId && userId) {
-        // Notify room that player left
-        io.to(roomId).emit('player_left', { senderId: userId });
-        socketRooms.delete(socket.id);
-    }
-    
+
     if (userId) {
         userToSocket.delete(userId);
         socketToUser.delete(socket.id);
+    }
+
+    if (roomId && userId) {
+        io.to(roomId).emit('player_left', { senderId: userId });
+        socketRooms.delete(socket.id);
+
+        // Losing the host would otherwise end the game for everyone, so hand
+        // authority to someone still connected.
+        if (roomHosts.get(roomId) === userId) {
+            migrateHost(roomId, userId);
+        }
+        forgetMember(roomId, userId);
     }
   });
 });

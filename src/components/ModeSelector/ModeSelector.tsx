@@ -45,9 +45,9 @@ export default function ModeSelector({ isHost }: ModeSelectorProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Game Mode</h3>
+        <h3 className="text-sm font-bold text-ink-muted uppercase tracking-widest">Game Mode</h3>
         {!isHost && (
-          <span className="text-xs text-slate-600 italic">Host selects mode</span>
+          <span className="text-xs text-ink-muted/60 italic">Host selects mode</span>
         )}
       </div>
 
@@ -61,7 +61,7 @@ export default function ModeSelector({ isHost }: ModeSelectorProps) {
               disabled={!isHost}
               onClick={() => handleSelect(mode.id as GameModeId)}
               className={clsx(
-                'w-full text-left p-3 rounded-xl border bg-slate-950/60 transition-all duration-200',
+                'w-full text-left p-3 rounded-xl border bg-base/60 transition-all duration-200',
                 'disabled:cursor-not-allowed disabled:opacity-70',
                 MODE_COLORS[mode.id as GameModeId]
               )}
@@ -74,15 +74,15 @@ export default function ModeSelector({ isHost }: ModeSelectorProps) {
                   <div className="flex items-center gap-2">
                     <span className={clsx(
                       'font-bold text-sm',
-                      isActive ? 'text-slate-100' : 'text-slate-300'
+                      isActive ? 'text-ink' : 'text-ink'
                     )}>
                       {mode.name}
                     </span>
-                    <span className="text-xs text-slate-600 shrink-0">
+                    <span className="text-xs text-ink-muted/60 shrink-0">
                       {mode.minPlayers}–{mode.maxPlayers}p
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                  <p className="text-xs text-ink-muted mt-0.5 leading-relaxed">
                     {mode.description}
                   </p>
                 </div>

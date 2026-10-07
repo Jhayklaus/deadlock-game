@@ -127,6 +127,19 @@
     scrollbar-color: rgb(var(--edge)) rgb(var(--bg-elevated));
   }
 
+  /* Native form controls default to the browser's blue, which reads as a bug
+   * next to a themed palette. `accent-color` retints checkboxes, radios and
+   * range thumbs in one line, per theme. */
+  input[type='range'],
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: rgb(var(--accent));
+  }
+
+  input[type='range'] {
+    cursor: pointer;
+  }
+
   /* Themed focus ring, so keyboard users get a visible, on-brand outline. */
   :focus-visible {
     outline: 2px solid rgb(var(--accent));

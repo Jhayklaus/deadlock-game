@@ -34,109 +34,109 @@ export const roleThemes: Record<Role, {
 }> = {
   mafia: { 
     color: "text-red-500", 
-    gradient: "from-red-950 to-slate-950 border-red-900/50", 
+    gradient: "from-red-950 to-base border-red-900/50", 
     shadow: "shadow-red-900/20",
     badge: 'danger'
   },
   detective: { 
     color: "text-blue-400", 
-    gradient: "from-blue-950 to-slate-950 border-blue-900/50", 
+    gradient: "from-blue-950 to-base border-blue-900/50", 
     shadow: "shadow-blue-900/20",
     badge: 'info'
   },
   doctor: { 
     color: "text-green-400", 
-    gradient: "from-green-950 to-slate-950 border-green-900/50", 
+    gradient: "from-green-950 to-base border-green-900/50", 
     shadow: "shadow-green-900/20",
     badge: 'success'
   },
   civilian: { 
-    color: "text-slate-300", 
-    gradient: "from-slate-900 to-slate-950 border-slate-700/50", 
-    shadow: "shadow-slate-900/20",
+    color: "text-ink", 
+    gradient: "from-elevated to-base border-edge/60/50", 
+    shadow: "shadow-black/20",
     badge: 'default'
   },
   vigilante: { 
     color: "text-amber-500", 
-    gradient: "from-amber-950 to-slate-950 border-amber-900/50", 
+    gradient: "from-amber-950 to-base border-amber-900/50", 
     shadow: "shadow-amber-900/20",
     badge: 'warning'
   },
   mayor: { 
     color: "text-purple-400", 
-    gradient: "from-purple-950 to-slate-950 border-purple-900/50", 
+    gradient: "from-purple-950 to-base border-purple-900/50", 
     shadow: "shadow-purple-900/20",
     badge: 'info'
   },
   serial_killer: { 
     color: "text-orange-600", 
-    gradient: "from-orange-950 to-slate-950 border-orange-900/50", 
+    gradient: "from-orange-950 to-base border-orange-900/50", 
     shadow: "shadow-orange-900/20",
     badge: 'danger'
   },
   jester: { 
     color: "text-pink-400", 
-    gradient: "from-pink-950 to-slate-950 border-pink-900/50", 
+    gradient: "from-pink-950 to-base border-pink-900/50", 
     shadow: "shadow-pink-900/20",
     badge: 'warning'
   },
   bodyguard: { 
     color: "text-teal-400", 
-    gradient: "from-teal-950 to-slate-950 border-teal-900/50", 
+    gradient: "from-teal-950 to-base border-teal-900/50", 
     shadow: "shadow-teal-900/20",
     badge: 'success'
   },
   medium: { 
     color: "text-indigo-400", 
-    gradient: "from-indigo-950 to-slate-950 border-indigo-900/50", 
+    gradient: "from-indigo-950 to-base border-indigo-900/50", 
     shadow: "shadow-indigo-900/20",
     badge: 'info'
   },
   escort: {
     color: "text-fuchsia-400",
-    gradient: "from-fuchsia-950 to-slate-950 border-fuchsia-900/50",
+    gradient: "from-fuchsia-950 to-base border-fuchsia-900/50",
     shadow: "shadow-fuchsia-900/20",
     badge: 'info'
   },
   veteran: {
     color: "text-yellow-500",
-    gradient: "from-yellow-950 to-slate-950 border-yellow-900/50",
+    gradient: "from-yellow-950 to-base border-yellow-900/50",
     shadow: "shadow-yellow-900/20",
     badge: 'warning'
   },
   lookout: {
     color: "text-sky-400",
-    gradient: "from-sky-950 to-slate-950 border-sky-900/50",
+    gradient: "from-sky-950 to-base border-sky-900/50",
     shadow: "shadow-sky-900/20",
     badge: 'info'
   },
   spy: {
     color: "text-cyan-400",
-    gradient: "from-cyan-950 to-slate-950 border-cyan-900/50",
+    gradient: "from-cyan-950 to-base border-cyan-900/50",
     shadow: "shadow-cyan-900/20",
     badge: 'info'
   },
   framer: {
     color: "text-rose-500",
-    gradient: "from-rose-950 to-slate-950 border-rose-900/50",
+    gradient: "from-rose-950 to-base border-rose-900/50",
     shadow: "shadow-rose-900/20",
     badge: 'danger'
   },
   survivor: {
     color: "text-lime-400",
-    gradient: "from-lime-950 to-slate-950 border-lime-900/50",
+    gradient: "from-lime-950 to-base border-lime-900/50",
     shadow: "shadow-lime-900/20",
     badge: 'default'
   },
   executioner: {
     color: "text-stone-300",
-    gradient: "from-stone-900 to-slate-950 border-stone-700/50",
+    gradient: "from-stone-900 to-base border-stone-700/50",
     shadow: "shadow-stone-900/20",
     badge: 'warning'
   },
   witch: {
     color: "text-violet-400",
-    gradient: "from-violet-950 to-slate-950 border-violet-900/50",
+    gradient: "from-violet-950 to-base border-violet-900/50",
     shadow: "shadow-violet-900/20",
     badge: 'warning'
   }
@@ -198,7 +198,7 @@ export const RoleIcon = ({ role }: { role: Role }) => {
       </svg>
     ),
     civilian: (
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={clsx(commonClasses, "text-slate-400")}>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={clsx(commonClasses, "text-ink-muted")}>
         <path fillRule="evenodd" d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z" clipRule="evenodd" />
       </svg>
     ),
@@ -227,7 +227,7 @@ export default function RoleCard() {
 
   if (!myRole) return (
     <div className="flex items-center justify-center min-h-[300px]">
-      <div className="animate-spin h-8 w-8 border-4 border-slate-500 border-t-white rounded-full" />
+      <div className="animate-spin h-8 w-8 border-4 border-edge border-t-white rounded-full" />
     </div>
   );
 
@@ -261,14 +261,14 @@ export default function RoleCard() {
             <RoleIcon role={myRole} />
           </div>
           
-          <h2 className="text-xs font-bold uppercase tracking-[0.3em] text-slate-400 mb-1">Assigned Role</h2>
-          <h1 className={clsx("text-4xl md:text-5xl font-black mb-6 uppercase tracking-tight filter drop-shadow-md font-creepster", theme.color)}>
+          <h2 className="text-xs font-bold uppercase tracking-[0.3em] text-ink-muted mb-1">Assigned Role</h2>
+          <h1 className={clsx("text-4xl md:text-5xl font-black mb-6 uppercase tracking-tight filter drop-shadow-md font-display", theme.color)}>
             {myRole.replace('_', ' ')}
           </h1>
           
           <div className="w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent mb-6"></div>
           
-          <p className="text-base md:text-lg font-medium leading-relaxed text-slate-300 mb-8 max-w-[90%] mx-auto">
+          <p className="text-base md:text-lg font-medium leading-relaxed text-ink mb-8 max-w-[90%] mx-auto">
             {roleDescriptions[myRole]}
           </p>
 
@@ -295,7 +295,7 @@ export default function RoleCard() {
         </CardContent>
       </Card>
       
-      <p className="text-center text-slate-500 mt-6 animate-pulse font-mono text-xs uppercase tracking-widest opacity-60">
+      <p className="text-center text-ink-muted mt-6 animate-pulse font-mono text-xs uppercase tracking-widest opacity-60">
         Waiting for nightfall...
       </p>
     </div>

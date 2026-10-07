@@ -12,8 +12,8 @@ export default function Graveyard() {
   if (deadPlayers.length === 0) return null;
 
   return (
-    <div className="w-full bg-slate-900/50 border border-slate-800 rounded-xl p-6 mt-6">
-      <h3 className="text-slate-400 font-bold text-sm uppercase tracking-widest mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
+    <div className="w-full bg-elevated/50 border border-edge/50 rounded-xl p-6 mt-6">
+      <h3 className="text-ink-muted font-bold text-sm uppercase tracking-widest mb-4 border-b border-edge/50 pb-2 flex items-center gap-2">
         <Ghost size={16} /> Graveyard
       </h3>
       
@@ -23,22 +23,22 @@ export default function Graveyard() {
             const role = amIDead ? (player.role || (allRoles ? allRoles[player.id] : null)) : null;
             
             return (
-                <div key={player.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col gap-2 relative overflow-hidden group hover:border-slate-700 transition-colors">
+                <div key={player.id} className="bg-base p-4 rounded-xl border border-edge/50 flex flex-col gap-2 relative overflow-hidden group hover:border-edge/60 transition-colors">
                     <div className="flex justify-between items-start z-10">
                         <div>
-                            <span className="font-bold text-slate-400 line-through decoration-red-500/50 decoration-2">{player.name}</span>
+                            <span className="font-medium text-ink-muted line-through decoration-danger/50 truncate">{player.name}</span>
                             {role && (
-                                <span className="block text-xs text-slate-600 uppercase font-mono mt-1 font-bold">
+                                <span className="block text-xs text-ink-muted/60 uppercase font-mono mt-1 font-bold">
                                     {role.replace('_', ' ')}
                                 </span>
                             )}
                         </div>
-                        <Skull size={20} className="text-slate-700" />
+                        <Skull size={20} className="text-ink-muted/50" />
                     </div>
 
                     {player.lastWill && (
-                        <div className="mt-2 pt-3 border-t border-slate-900 text-sm text-slate-400 italic font-serif bg-slate-900/50 -mx-4 -mb-4 p-4">
-                            <span className="block text-[10px] text-slate-600 font-bold uppercase not-italic mb-1 tracking-wider">Last Will</span>
+                        <div className="mt-2 pt-3 border-t border-edge/40 text-sm text-ink-muted italic font-serif bg-elevated/50 -mx-4 -mb-4 p-4">
+                            <span className="block text-[10px] text-ink-muted/60 font-bold uppercase not-italic mb-1 tracking-wider">Last Will</span>
                             "{player.lastWill}"
                         </div>
                     )}

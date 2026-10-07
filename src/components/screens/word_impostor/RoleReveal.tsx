@@ -14,7 +14,7 @@ export default function RoleReveal() {
 
   return (
     <div className="w-full max-w-sm mx-auto animate-in fade-in zoom-in duration-700">
-      <Card variant="glass" className="relative overflow-hidden border-violet-800/50 bg-gradient-to-br from-violet-950/80 to-slate-950">
+      <Card variant="glass" className="relative overflow-hidden border-violet-800/50 bg-gradient-to-br from-violet-950/80 to-base">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-violet-700 via-violet-400 to-violet-700 opacity-70" />
         <div className="absolute inset-0 opacity-5 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-violet-400 to-transparent pointer-events-none" />
 

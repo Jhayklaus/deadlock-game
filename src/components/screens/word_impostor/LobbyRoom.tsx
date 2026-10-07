@@ -105,7 +105,7 @@ export default function LobbyRoom() {
           <div className="hidden xl:block">
             <Card variant="glass" padding="none" className="overflow-hidden border-violet-900/30"><GameSettingsUI /></Card>
           </div>
-          <Modal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} title="Game Settings" className="bg-slate-950 border-slate-800">
+          <Modal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} title="Game Settings" className="bg-base border-edge/50">
             <GameSettingsUI />
           </Modal>
         </div>
@@ -129,7 +129,7 @@ export default function LobbyRoom() {
                   </Button>
                 </div>
                 <Button
-                  variant="primary"
+                  variant="accent"
                   size="lg"
                   className="w-full flex items-center justify-center gap-3 bg-violet-600 hover:bg-violet-500 border-violet-500 shadow-violet-500/20"
                   disabled={!canStart}

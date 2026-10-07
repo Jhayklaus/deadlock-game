@@ -5,9 +5,6 @@ import { networkManager } from '../lib/network';
 import ChatBox from './ChatBox';
 import LastWillEditor from './LastWillEditor';
 import Graveyard from './Graveyard';
-import WordImpostorDay from './WordImpostor/WordImpostorDay';
-import UndercoverDay from './Undercover/UndercoverDay';
-import FrequencySpyDay from './FrequencySpy/FrequencySpyDay';
 import { Skull, Sun, MessageSquare, Gavel, SkipForward, CheckCircle, User } from 'lucide-react';
 import MobileChatDrawer from './MobileChatDrawer';
 import { Card } from './ui/Card';
@@ -15,7 +12,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 
 export default function DayPhase() {
-  const { lastNightResult, players, myId, phase, isAlive, voteCounts, myDeathReason, gameMode } = useGameStore(state => ({
+  const { lastNightResult, players, myId, phase, isAlive, voteCounts, myDeathReason } = useGameStore(state => ({
     lastNightResult: state.lastNightResult,
     players: state.players,
     myId: state.myId,
@@ -23,7 +20,6 @@ export default function DayPhase() {
     isAlive: state.players[state.myId]?.isAlive,
     voteCounts: state.voteCounts,
     myDeathReason: state.myDeathReason,
-    gameMode: state.gameMode,
   }));
 
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
@@ -48,41 +44,41 @@ export default function DayPhase() {
     return (
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full pb-20 md:pb-0">
         <Card variant="glass" className="text-center p-8 flex flex-col items-center justify-center">
-          <Skull size={64} className="text-red-500 mb-4 animate-pulse" />
-          <h2 className="text-4xl font-bold text-red-500 mb-4 font-creepster tracking-wider">You are Dead</h2>
-          <p className="text-slate-400 mb-6">You can watch, but you cannot speak to the living.</p>
+          <Skull size={48} className="text-danger mb-4" />
+          <h2 className="font-display text-3xl text-danger mb-3">You are dead</h2>
+          <p className="text-ink-muted text-sm mb-6">You can watch, but you cannot speak to the living.</p>
           {myDeathReason && (
             <div className="bg-red-950/50 border border-red-900/50 p-4 rounded-xl mb-6 w-full">
                 <p className="text-red-300 font-semibold">{myDeathReason}</p>
             </div>
           )}
-          <p className="text-slate-500 italic mb-8">"{lastNightResult}"</p>
+          <p className="text-ink-muted italic mb-8">"{lastNightResult}"</p>
           
           {phase === 'voting' && (
-             <div className="w-full bg-slate-950/50 p-6 rounded-xl border border-slate-800 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+             <div className="w-full bg-base/40 p-5 rounded-xl border border-edge/50 mb-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
                 <div className="flex items-center justify-center gap-2 mb-4">
-                    <Gavel className="text-slate-500" size={20} />
-                    <h3 className="text-lg font-bold text-slate-300">Live Voting Results</h3>
+                    <Gavel className="text-ink-muted" size={18} />
+                    <h3 className="text-base font-heading font-semibold text-ink">Live voting</h3>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
                      {targets.map(p => {
                         const count = voteCounts?.[p.id] || 0;
                         if (count === 0) return null;
                         return (
-                            <div key={p.id} className="bg-slate-900 p-3 rounded-lg border border-slate-800 flex justify-between items-center">
-                                <span className="text-slate-300 text-sm font-medium">{p.name}</span>
+                            <div key={p.id} className="bg-surface/60 p-3 rounded-xl border border-edge/50 flex justify-between items-center">
+                                <span className="text-ink text-sm">{p.name}</span>
                                 <Badge variant="warning">{count} Votes</Badge>
                             </div>
                         );
                      })}
                      {voteCounts?.['SKIP'] ? (
-                        <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 flex justify-between items-center opacity-75">
-                             <span className="text-slate-400 text-sm italic">Skipped</span>
+                        <div className="bg-surface/40 p-3 rounded-xl border border-edge/50 flex justify-between items-center">
+                             <span className="text-ink-muted text-sm italic">Skipped</span>
                              <Badge variant="default">{voteCounts['SKIP']} Votes</Badge>
                         </div>
                      ) : null}
                      {(!voteCounts || (Object.values(voteCounts).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) === 0)) && (
-                         <div className="col-span-full text-center text-slate-600 italic text-sm py-4">
+                         <div className="col-span-full text-center text-ink-muted/70 text-sm py-4">
                              No votes cast yet...
                          </div>
                      )}
@@ -108,12 +104,12 @@ export default function DayPhase() {
         <Card variant="glass" className="flex flex-col relative overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-center gap-3 mb-8">
-                <Sun className="text-amber-500 animate-spin-slow" size={32} />
-                <h2 className="text-3xl font-bold text-slate-100 font-creepster tracking-wider">Day Phase</h2>
+                <Sun className="text-accent" size={24} />
+                <h2 className="font-display text-2xl text-accent">Daybreak</h2>
             </div>
             
             {/* Morning News */}
-            <Card variant="default" className="text-center mb-8 relative bg-slate-950/80">
+            <Card variant="accent" className="text-center mb-8 relative">
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
                     <Badge variant="default" className="text-[10px] uppercase tracking-widest font-bold">Morning News</Badge>
                 </div>
@@ -125,19 +121,19 @@ export default function DayPhase() {
             {/* Phase Content */}
             {phase === 'day_discussion' && (
             <div className="text-center py-12 flex-1 flex flex-col justify-center items-center">
-                <div className="bg-slate-800/50 p-6 rounded-full mb-6">
-                    <MessageSquare size={48} className="text-slate-400" />
+                <div className="bg-accent/10 border border-accent/25 p-5 rounded-2xl mb-5">
+                    <MessageSquare size={32} className="text-accent" />
                 </div>
-                <p className="text-2xl text-slate-300 animate-pulse font-light">Discuss with your fellow citizens...</p>
-                <p className="text-slate-500 mt-2 font-mono text-sm uppercase tracking-widest">Identify the Traitors</p>
+                <p className="text-lg text-ink">Discuss with your fellow citizens…</p>
+                <p className="text-ink-muted mt-1.5 text-xs uppercase tracking-[0.2em]">Identify the traitors</p>
             </div>
             )}
 
             {phase === 'voting' && !hasVoted && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex items-center justify-center gap-2 mb-6">
-                    <Gavel className="text-slate-400" />
-                    <h3 className="text-xl font-bold text-slate-200">Cast your Vote</h3>
+                    <Gavel className="text-accent" size={20} />
+                    <h3 className="text-lg font-heading font-semibold text-ink">Cast your vote</h3>
                 </div>
                 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-8">
@@ -150,17 +146,17 @@ export default function DayPhase() {
                     className={clsx(
                         "text-left relative group border transition-all duration-200",
                         selectedVote === player.id 
-                        ? "border-amber-500 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.2)]" 
-                        : "border-slate-700 hover:border-slate-600"
+                        ? "border-accent bg-accent/10 shadow-accent-sm" 
+                        : "border-edge/60 hover:border-edge"
                     )}
                     >
                         <div className="flex items-center gap-3 relative z-10">
-                            <div className="bg-slate-900 p-2 rounded-lg">
-                                <User size={20} className={selectedVote === player.id ? "text-amber-500" : "text-slate-500"} />
+                            <div className="bg-surface p-2 rounded-lg border border-edge/50">
+                                <User size={20} className={selectedVote === player.id ? "text-accent" : "text-ink-muted"} />
                             </div>
                             <div className="flex flex-col">
-                                <span className="font-bold text-sm text-slate-200">{player.name}</span>
-                                {player.id === myId && <span className="text-[10px] opacity-50 uppercase tracking-wider text-slate-400">(You)</span>}
+                                <span className="font-semibold text-sm text-ink">{player.name}</span>
+                                {player.id === myId && <span className="text-[10px] uppercase tracking-wider text-ink-muted">(You)</span>}
                             </div>
                         </div>
                         
@@ -188,8 +184,8 @@ export default function DayPhase() {
                 <Button
                     onClick={handleVote}
                     disabled={!selectedVote}
-                    variant="primary"
-                    className="flex-1 flex items-center justify-center gap-2 py-4 shadow-lg shadow-amber-500/20"
+                    variant="accent"
+                    className="flex-1 py-4"
                 >
                     <CheckCircle size={20} />
                     <span>Confirm Vote</span>
@@ -200,28 +196,28 @@ export default function DayPhase() {
 
             {phase === 'voting' && hasVoted && (
                 <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500 py-12">
-                    <div className="bg-slate-950/50 p-8 rounded-2xl border border-slate-800 text-center max-w-md w-full relative">
-                        <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 p-3 rounded-full border border-slate-700">
+                    <div className="bg-base/40 p-8 rounded-2xl border border-edge/50 text-center max-w-md w-full relative">
+                        <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-elevated p-3 rounded-full border border-edge/60">
                             <CheckCircle size={32} className="text-green-500" />
                         </div>
-                        <h3 className="text-xl font-bold text-slate-300 mb-2 mt-4">Vote Cast</h3>
-                        <p className="text-slate-500 mb-8 text-sm">Waiting for the town to decide...</p>
+                        <h3 className="text-lg font-heading font-semibold text-ink mb-1.5 mt-4">Vote cast</h3>
+                        <p className="text-ink-muted mb-8 text-sm">Waiting for the town to decide…</p>
                         
                         <div className="space-y-2 text-left max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
                             {targets.map(p => {
                                 const count = voteCounts?.[p.id] || 0;
                                 if (count === 0) return null;
                                 return (
-                                    <div key={p.id} className="bg-slate-900 p-3 rounded-lg border border-slate-800 flex justify-between items-center">
-                                        <span className="text-slate-300 text-sm font-medium">{p.name}</span>
+                                    <div key={p.id} className="bg-surface/60 p-3 rounded-xl border border-edge/50 flex justify-between items-center">
+                                        <span className="text-ink text-sm">{p.name}</span>
                                         <Badge variant="warning">{count} Votes</Badge>
                                     </div>
                                 );
                             })}
                             {/* Show Skips */}
                             {voteCounts?.['SKIP'] ? (
-                                <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 flex justify-between items-center opacity-75">
-                                    <span className="text-slate-400 text-sm italic">Skipped</span>
+                                <div className="bg-surface/40 p-3 rounded-xl border border-edge/50 flex justify-between items-center">
+                                    <span className="text-ink-muted text-sm italic">Skipped</span>
                                     <Badge variant="default">{voteCounts['SKIP']} Votes</Badge>
                                 </div>
                             ) : null}
@@ -240,13 +236,7 @@ export default function DayPhase() {
       {/* Right sidebar: mode panel + chat */}
       <div className="hidden lg:flex lg:col-span-5 flex-col gap-4 sticky top-6 h-fit">
         {/* Mode-specific info panel */}
-        {gameMode !== 'classic_mafia' && (
-          <Card variant="glass" className="p-4">
-            {gameMode === 'word_impostor' && <WordImpostorDay />}
-            {gameMode === 'undercover' && <UndercoverDay />}
-            {gameMode === 'frequency_spy' && <FrequencySpyDay />}
-          </Card>
-        )}
+
         <div className="h-[520px]">
           <ChatBox />
         </div>

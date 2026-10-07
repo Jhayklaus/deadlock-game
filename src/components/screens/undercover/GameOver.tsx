@@ -58,7 +58,7 @@ export default function GameOver() {
               const roleColor = role === 'undercover'
                 ? 'bg-amber-500/10 text-amber-300 border-amber-500/25'
                 : role === 'blank'
-                ? 'bg-slate-700/30 text-slate-400 border-slate-600/30'
+                ? 'bg-surface/30 text-ink-muted border-edge/30'
                 : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
               return (
                 <div key={p.id} className={clsx(
@@ -95,7 +95,7 @@ export default function GameOver() {
                   <p className="text-amber-500/60 text-sm mb-6">Deploy another mission?</p>
                   <button
                     onClick={() => networkManager.playAgain()}
-                    className="w-full bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold py-4 px-8 rounded-xl transition-all hover:scale-105 shadow-lg shadow-amber-500/20 flex items-center justify-center gap-3 font-oswald uppercase"
+                    className="w-full bg-amber-500 hover:bg-amber-400 text-base font-bold py-4 px-8 rounded-xl transition-all hover:scale-105 shadow-lg shadow-amber-500/20 flex items-center justify-center gap-3 font-oswald uppercase"
                   >
                     <RotateCcw size={20} /> New Mission
                   </button>

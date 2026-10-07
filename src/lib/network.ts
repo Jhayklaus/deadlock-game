@@ -1,10 +1,13 @@
 import { io, Socket } from 'socket.io-client';
 import { useGameStore } from './store';
-import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId, GameSettings } from './types';
+import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId, GameSettings, Role, NightActionType, ClassicWinner } from './types';
+import { isTownRole, isMafiaRole } from './types';
 import { distributeRoles } from './gameLogic';
 import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from './bots';
 import { soundManager } from './sound';
 import { getMode } from '../modes/registry';
+import { resolveNight, emptyNightActions, ABILITY_CHARGES } from './nightResolution';
+import type { NightActions } from './nightResolution';
 // Side-effect import: registers all game modes into the registry
 import '../modes/index';
 
@@ -26,21 +29,19 @@ class NetworkManager {
   private modeRoles: Record<PlayerId, string> = {};
 
   // Host state for night actions
-  private nightActions: {
-    mafiaVote: Record<PlayerId, PlayerId>; // voterId -> targetId
-    doctorTargets: Record<PlayerId, PlayerId>; // doctorId -> targetId
-    detectiveTargets: Record<PlayerId, PlayerId>; // detectiveId -> targetId
-    vigilanteTargets: Record<PlayerId, PlayerId>; // vigilanteId -> targetId
-    serialKillerTargets: Record<PlayerId, PlayerId>; // skId -> targetId
-    bodyguardTargets: Record<PlayerId, PlayerId>;
-  } = { 
-    mafiaVote: {}, 
-    doctorTargets: {}, 
-    detectiveTargets: {}, 
-    vigilanteTargets: {}, 
-    serialKillerTargets: {},
-    bodyguardTargets: {}
-  };
+  private nightActions: NightActions = emptyNightActions();
+
+  /**
+   * Remaining uses of limited abilities (Veteran alerts, Survivor vests),
+   * keyed by player. Persists across nights for the whole game.
+   */
+  private abilityUses: Record<PlayerId, number> = {};
+
+  /** Executioner → the player they must get lynched. */
+  private executionerTargets: Record<PlayerId, PlayerId> = {};
+
+  /** Neutral roles that have already met their goal (e.g. a lynched Jester). */
+  private neutralWinners: Set<PlayerId> = new Set();
 
   // Host state for day votes
   private dayVotes: Record<PlayerId, PlayerId | null> = {};
@@ -574,14 +575,7 @@ class NetworkManager {
     this.activeModeId = store.gameMode;
 
     // Reset game state
-    this.nightActions = {
-        mafiaVote: {},
-        doctorTargets: {},
-        detectiveTargets: {},
-        vigilanteTargets: {},
-        serialKillerTargets: {},
-        bodyguardTargets: {}
-    };
+    this.resetNightActions();
     this.dayVotes = {};
     this.lastWills = {};
     this.hostPrivateState = {};
@@ -617,11 +611,29 @@ class NetworkManager {
           store.setAllRoles(roles);
           this.modeRoles = roles as Record<PlayerId, string>;
 
+          // Reset per-game ability bookkeeping.
+          this.abilityUses = {};
+          this.executionerTargets = {};
+          this.neutralWinners = new Set();
+
+          // Give each Executioner a mark: a Town player, since getting a
+          // fellow evil lynched would be no challenge at all.
+          const townIds = playerIds.filter(id => isTownRole(roles[id]));
+          playerIds
+              .filter(id => roles[id] === 'executioner')
+              .forEach(execId => {
+                  const candidates = townIds.filter(id => id !== execId);
+                  if (candidates.length === 0) return;
+                  this.executionerTargets[execId] =
+                      candidates[Math.floor(Math.random() * candidates.length)];
+              });
+
           players.forEach(player => {
               if (player.isBot) return;
               const role = roles[player.id];
-              const mafiaPartners = role === 'mafia'
-                  ? Object.entries(roles).filter(([_, r]) => r === 'mafia').map(([id]) => id)
+              // The Framer is Mafia, so they see and are seen by their partners.
+              const mafiaPartners = isMafiaRole(role)
+                  ? Object.entries(roles).filter(([_, r]) => isMafiaRole(r)).map(([id]) => id)
                   : undefined;
 
               if (player.id === store.myId) {
@@ -723,6 +735,16 @@ class NetworkManager {
       };
       this.broadcast(phaseMsg);
       store.setPhase('role_assignment');
+
+      // Tell each Executioner who they need lynched. Sent after the phase
+      // change so it lands while they are looking at their role card.
+      Object.entries(this.executionerTargets).forEach(([execId, markId]) => {
+          const markName = store.players[markId]?.name ?? 'someone';
+          this.sendPrivateSystemMessage(
+              execId,
+              `Your mark is ${markName}. Get them voted out by the Town and you win.`
+          );
+      });
       store.setTimerEnd(timerEnd);
 
       setTimeout(() => this.handlePhaseTimeout('role_assignment'), duration);
@@ -732,14 +754,7 @@ class NetworkManager {
       const store = useGameStore.getState();
       
       // Clear previous night actions
-      this.nightActions = { 
-          mafiaVote: {}, 
-          doctorTargets: {}, 
-          detectiveTargets: {}, 
-          vigilanteTargets: {}, 
-          serialKillerTargets: {},
-          bodyguardTargets: {}
-      };
+      this.resetNightActions();
 
       const duration = store.settings.nightDuration * 1000;
       const timerEnd = Date.now() + duration;
@@ -905,22 +920,22 @@ class NetworkManager {
 
               const action = await getBotNightAction(bot.id, role, store.players, allRoles);
               if (action) {
-                  this.handleNightAction(bot.id, action.action, action.targetId);
+                  this.handleNightAction(bot.id, action.action, action.targetId, action.secondTargetId);
               }
           }, delay);
       });
   }
 
-  sendNightAction(action: 'KILL' | 'SAVE' | 'INVESTIGATE' | 'PROTECT', targetId: string) {
+  sendNightAction(action: NightActionType, targetId: string, secondTargetId?: string) {
       const store = useGameStore.getState();
       const msg: NetworkMessage = {
           type: 'NIGHT_ACTION',
           senderId: store.myId,
-          payload: { action, targetId }
+          payload: { action, targetId, secondTargetId }
       };
 
       if (store.myId === store.hostId) {
-          this.handleNightAction(store.myId, action, targetId);
+          this.handleNightAction(store.myId, action, targetId, secondTargetId);
       } else {
           if (store.hostId) this.sendMessage(store.hostId, msg);
       }
@@ -964,161 +979,84 @@ class NetworkManager {
     }
   }
 
+  /**
+   * Runs the night and applies its outcome.
+   *
+   * The rules themselves live in src/lib/nightResolution.ts as a pure
+   * function, so ordering (roleblock before action, frame before
+   * investigation, protection before attack) can be tested directly. This
+   * method only gathers state, calls it, and broadcasts the result.
+   */
   private resolveNightPhase() {
     const store = useGameStore.getState();
-    
-    // 1. Tally votes/actions
-    const mafiaVotes = this.nightActions.mafiaVote;
-    const doctorSaves = Object.values(this.nightActions.doctorTargets);
-    const bodyguardProtects = Object.values(this.nightActions.bodyguardTargets);
-    const detectiveChecks = this.nightActions.detectiveTargets;
-    const vigilanteKills = this.nightActions.vigilanteTargets;
-    const serialKillerKills = this.nightActions.serialKillerTargets;
+    const roles = store.allRoles || {};
 
-    // Calculate Mafia targets (Individual Kills)
-    // Each mafia member's vote counts as a separate attack
-    const mafiaTargets = new Set<string>(Object.values(mafiaVotes));
-
-    const deaths: string[] = [];
-    const savedPlayers: string[] = [];
-
-    // Resolve Mafia Kills
-    mafiaTargets.forEach(target => {
-        const isSaved = doctorSaves.includes(target) || bodyguardProtects.includes(target);
-        if (isSaved) {
-            if (!savedPlayers.includes(target)) {
-                savedPlayers.push(target);
-                this.sendPrivateSystemMessage(target, "You were attacked but saved by a Doctor or Bodyguard!");
-            }
-        } else {
-            if (!deaths.includes(target)) {
-                deaths.push(target);
-                
-                // Find who voted for this target
-                // const killers = Object.entries(mafiaVotes)
-                //    .filter(([_, t]) => t === target)
-                //    .map(([voterId]) => store.players[voterId]?.name || 'Unknown')
-                //    .join(', ');
-                    
-                this.sendDeathInfo(target, `You were killed by the Mafia.`);
-            }
-        }
+    const names: Record<string, string> = {};
+    const alive = new Set<string>();
+    Object.values(store.players).forEach(p => {
+        names[p.id] = p.name;
+        if (p.isAlive) alive.add(p.id);
     });
 
-    // Resolve Vigilante Kills
-    Object.entries(vigilanteKills).forEach(([vigilanteId, targetId]) => {
-        // Vigilante Guilt: Dies if they shoot a Town member
-        const targetRole = (store.allRoles || {})[targetId];
-        const isTown = ['civilian', 'doctor', 'detective', 'bodyguard', 'medium', 'mayor', 'vigilante'].includes(targetRole);
-
-        if (isTown) {
-            // Target is NOT killed (unless someone else killed them), Vigilante dies instead
-            if (!deaths.includes(vigilanteId)) {
-                deaths.push(vigilanteId);
-                this.sendDeathInfo(vigilanteId, "You died from guilt after trying to kill a Town member.");
-                // Also notify the vigilante privately
-                this.sendPrivateSystemMessage(vigilanteId, "You aimed at a Town member! Overcome with guilt, you took your own life.");
-            }
-        } else {
-            // Target is bad (Mafia/SK/Jester/etc), kill them
-            const isSaved = doctorSaves.includes(targetId) || bodyguardProtects.includes(targetId);
-            if (isSaved) {
-                 savedPlayers.push(targetId);
-                 this.sendPrivateSystemMessage(targetId, "You were attacked but saved by a Doctor or Bodyguard!");
-            } else {
-                if (!deaths.includes(targetId)) {
-                    deaths.push(targetId);
-                    const killerName = store.players[vigilanteId]?.name || 'Unknown';
-                    this.sendDeathInfo(targetId, `You were killed by a Vigilante (${killerName}).`);
-                }
-            }
-        }
+    const outcome = resolveNight({
+        names,
+        alive,
+        roles,
+        actions: this.nightActions,
+        charges: this.abilityUses,
     });
 
-    // Resolve Serial Killer Kills
-    Object.entries(serialKillerKills).forEach(([skId, targetId]) => {
-        const isSaved = doctorSaves.includes(targetId) || bodyguardProtects.includes(targetId);
-        // SK usually penetrates doctor, but let's say doctor saves for now or SK is powerful.
-        // Let's stick to standard: Doctor saves.
-        if (isSaved) {
-             savedPlayers.push(targetId);
-             this.sendPrivateSystemMessage(targetId, "You were attacked but saved by a Doctor or Bodyguard!");
-        } else {
-            if (!deaths.includes(targetId)) {
-                deaths.push(targetId);
-                const killerName = store.players[skId]?.name || 'Unknown';
-                this.sendDeathInfo(targetId, `You were killed by a Serial Killer (${killerName}).`);
-            }
-        }
+    this.abilityUses = outcome.charges;
+
+    outcome.privateMessages.forEach(({ playerId, content }) => {
+        this.sendPrivateSystemMessage(playerId, content);
     });
 
-    // Resolve Detective Checks
-    Object.entries(detectiveChecks).forEach(([detectiveId, targetId]) => {
-        const targetRole = (store.allRoles || {})[targetId];
-        const isSuspicious = targetRole === 'mafia' || targetRole === 'serial_killer'; // Godfather?
-        const result = isSuspicious ? 'suspicious' : 'innocent';
-        
-        const msg: NetworkMessage = {
-            type: 'CHAT_MESSAGE',
-            senderId: store.myId,
-            payload: {
-                id: Math.random().toString(36).substring(2, 10),
-                senderId: 'SYSTEM',
-                senderName: 'System',
-                content: `Your investigation of ${store.players[targetId]?.name} returned: ${result}.`,
-                timestamp: Date.now(),
-                isSystem: true,
-                channel: 'global'
-            }
-        };
-        if (detectiveId === store.myId) {
-            store.addMessage(msg.payload);
-        } else {
-            this.sendMessage(detectiveId, msg);
-        }
-    });
-
-    // Process Deaths
-    deaths.forEach(id => {
-        const role = (store.allRoles || {})[id];
-        const lastWill = this.lastWills[id];
-        store.updatePlayer(id, { isAlive: false, lastWill, role });
+    outcome.deaths.forEach(({ playerId, reason }) => {
+        this.sendDeathInfo(playerId, reason);
+        store.updatePlayer(playerId, {
+            isAlive: false,
+            lastWill: this.lastWills[playerId],
+            role: roles[playerId],
+        });
     });
 
     this.broadcastPlayerUpdate();
 
-    // Prepare result message
-    let resultText = '';
-    if (deaths.length === 0) {
-        resultText = 'The night was quiet. No one died.';
+    let resultText: string;
+    if (outcome.deaths.length === 0) {
+        resultText = outcome.saved.length > 0
+            ? 'The night was violent, but everyone pulled through.'
+            : 'The night was quiet. No one died.';
     } else {
-        const deadNames = deaths.map(id => store.players[id]?.name).join(', ');
+        const deadNames = outcome.deaths
+            .map(d => store.players[d.playerId]?.name)
+            .filter(Boolean)
+            .join(', ');
         resultText = `Tragedy struck! ${deadNames} found dead.`;
     }
 
-    // Check Win Condition
     if (this.checkWinCondition()) return;
 
     // Transition to Day Discussion
     const duration = store.settings.discussionDuration * 1000;
     const timerEnd = Date.now() + duration;
 
-    const msg: NetworkMessage = {
+    this.broadcast({
         type: 'PHASE_CHANGE',
         senderId: store.myId,
-        payload: { 
-            phase: 'day_discussion', 
+        payload: {
+            phase: 'day_discussion',
             timerEnd,
             payload: { lastNightResult: resultText }
         }
-    };
-    this.broadcast(msg);
+    });
     this.startBotChatLoop('day');
     store.setPhase('day_discussion');
     store.setTimerEnd(timerEnd);
     store.setLastNightResult(resultText);
 
-    if (deaths.length > 0) {
+    if (outcome.deaths.length > 0) {
         soundManager.playKillSound(); // Host plays too
     }
 
@@ -1296,20 +1234,34 @@ class NetworkManager {
             this.broadcastSystemMessage(`Last Will of ${name}: "${lastWill}"`);
           }
 
-          // Check Jester Win
+          // A lynched Jester wins outright, immediately.
           if (role === 'jester') {
+              this.neutralWinners.add(eliminatedId);
               const msg: NetworkMessage = {
                   type: 'GAME_OVER',
                   senderId: store.myId,
                   payload: {
                       winner: 'jester',
-                      roles: store.allRoles || {}
+                      roles: store.allRoles || {},
+                      alsoWon: [eliminatedId],
                   }
               };
               this.broadcast(msg);
               store.setGameOver('jester', store.allRoles || {});
+              store.setAlsoWon([eliminatedId]);
               return;
           }
+
+          // An Executioner whose mark is lynched banks their win and keeps
+          // playing — the game carries on around them.
+          Object.entries(this.executionerTargets).forEach(([execId, markId]) => {
+              if (markId !== eliminatedId || this.neutralWinners.has(execId)) return;
+              this.neutralWinners.add(execId);
+              this.sendPrivateSystemMessage(
+                  execId,
+                  'Your mark has been lynched. Your work here is done — you have won, whatever happens next.'
+              );
+          });
       } else {
           // Tie or Skip wins
       if (winners.includes('SKIP') && winners.length === 1) {
@@ -1356,44 +1308,66 @@ class NetworkManager {
       setTimeout(() => this.handlePhaseTimeout('elimination_reveal'), duration);
   }
 
+  /**
+   * Ends the game when a faction has actually won.
+   *
+   * Counting is by faction, not by role name, so a new Town or Mafia role is
+   * picked up automatically. Neutrals are excluded from both sides: they
+   * neither help the Town reach safety nor the Mafia reach parity.
+   *
+   * Survivors and Executioners are passengers — they never end the game on
+   * their own, they just collect their own win alongside whoever does.
+   */
   private checkWinCondition(): boolean {
       const store = useGameStore.getState();
       const alivePlayers = Object.values(store.players).filter(p => p.isAlive);
       const allRoles = store.allRoles || {};
-      
-      const mafiaCount = alivePlayers.filter(p => allRoles[p.id] === 'mafia').length;
-      const townCount = alivePlayers.filter(p => allRoles[p.id] !== 'mafia' && allRoles[p.id] !== 'serial_killer' && allRoles[p.id] !== 'jester').length;
-      const skCount = alivePlayers.filter(p => allRoles[p.id] === 'serial_killer').length;
-      
-      let winner: 'town' | 'mafia' | 'serial_killer' | null = null;
+      const roleOf = (id: string) => allRoles[id];
 
-      if (mafiaCount === 0 && skCount === 0) {
+      const mafiaCount = alivePlayers.filter(p => isMafiaRole(roleOf(p.id))).length;
+      const townCount = alivePlayers.filter(p => isTownRole(roleOf(p.id))).length;
+      const skCount = alivePlayers.filter(p => roleOf(p.id) === 'serial_killer').length;
+      const witchCount = alivePlayers.filter(p => roleOf(p.id) === 'witch').length;
+
+      // Everyone who can still end the game by killing.
+      const hostileCount = mafiaCount + skCount;
+
+      let winner: ClassicWinner | null = null;
+
+      if (hostileCount === 0) {
           winner = 'town';
-      } else if (mafiaCount >= (townCount + skCount) && skCount === 0) {
-          winner = 'mafia';
-      } else if (skCount >= (townCount + mafiaCount)) {
-          // SK wins if they are last one standing or 1v1 with anyone?
-          // Usually SK wins 1v1 against Town, but 1v1 against Mafia is tricky.
-          // Simple rule: SK wins if remaining >= others.
+      } else if (skCount > 0 && skCount >= townCount + mafiaCount + witchCount) {
           winner = 'serial_killer';
+      } else if (mafiaCount > 0 && skCount === 0 && mafiaCount >= townCount + witchCount) {
+          winner = 'mafia';
       }
 
-      if (winner) {
-          const msg: NetworkMessage = {
-              type: 'GAME_OVER',
-              senderId: store.myId,
-              payload: {
-                  winner,
-                  roles: allRoles
-              }
-          };
-          this.broadcast(msg);
-          store.setGameOver(winner, allRoles);
-          this.startBotChatLoop('game_over');
-          return true;
-      }
+      if (!winner) return false;
 
-      return false;
+      // Neutrals who quietly met their own goal ride along with the result.
+      const alsoWon = [
+          // A Survivor wins simply by still breathing.
+          ...alivePlayers.filter(p => roleOf(p.id) === 'survivor').map(p => p.id),
+          // A Witch wins if they outlive the game.
+          ...alivePlayers.filter(p => roleOf(p.id) === 'witch').map(p => p.id),
+          // Jesters and Executioners banked their win earlier, at the lynch.
+          ...this.neutralWinners,
+      ];
+
+      const msg: NetworkMessage = {
+          type: 'GAME_OVER',
+          senderId: store.myId,
+          payload: {
+              winner,
+              roles: allRoles,
+              alsoWon: [...new Set(alsoWon)],
+          }
+      };
+      this.broadcast(msg);
+      store.setGameOver(winner, allRoles);
+      store.setAlsoWon([...new Set(alsoWon)]);
+      this.startBotChatLoop('game_over');
+      return true;
   }
 
   private broadcastSystemMessage(content: string) {
@@ -1425,24 +1399,75 @@ class NetworkManager {
     this.broadcast(msg);
   }
 
-  private handleNightAction(senderId: string, action: 'KILL' | 'SAVE' | 'INVESTIGATE' | 'PROTECT', targetId: string) {
+  /** Clears every per-night action map. */
+  private resetNightActions() {
+      this.nightActions = emptyNightActions();
+  }
+
+  /** Charges this player has left, seeding from their role on first use. */
+  private chargesLeft(playerId: string, role: Role | undefined): number {
+      if (!role) return 0;
+      const max = ABILITY_CHARGES[role];
+      if (max === undefined) return Infinity;
+      return this.abilityUses[playerId] ?? max;
+  }
+
+  private handleNightAction(
+      senderId: string,
+      action: NightActionType,
+      targetId: string,
+      secondTargetId?: string
+  ) {
       const store = useGameStore.getState();
       const role = (store.allRoles || {})[senderId];
 
-      if (action === 'KILL') {
-          if (role === 'mafia') {
-              this.nightActions.mafiaVote[senderId] = targetId;
-          } else if (role === 'vigilante') {
-              this.nightActions.vigilanteTargets[senderId] = targetId;
-          } else if (role === 'serial_killer') {
-              this.nightActions.serialKillerTargets[senderId] = targetId;
-          }
-      } else if (action === 'SAVE') {
-          this.nightActions.doctorTargets[senderId] = targetId;
-      } else if (action === 'PROTECT') {
-          this.nightActions.bodyguardTargets[senderId] = targetId;
-      } else if (action === 'INVESTIGATE') {
-          this.nightActions.detectiveTargets[senderId] = targetId;
+      // The host is authoritative: never let a client act for a role it does
+      // not hold, or act at all while dead.
+      if (!store.players[senderId]?.isAlive) return;
+
+      switch (action) {
+          case 'KILL':
+              if (role === 'mafia') this.nightActions.mafiaVote[senderId] = targetId;
+              else if (role === 'vigilante') this.nightActions.vigilanteTargets[senderId] = targetId;
+              else if (role === 'serial_killer') this.nightActions.serialKillerTargets[senderId] = targetId;
+              break;
+          case 'SAVE':
+              if (role === 'doctor') this.nightActions.doctorTargets[senderId] = targetId;
+              break;
+          case 'PROTECT':
+              if (role === 'bodyguard') this.nightActions.bodyguardTargets[senderId] = targetId;
+              break;
+          case 'INVESTIGATE':
+              if (role === 'detective') this.nightActions.detectiveTargets[senderId] = targetId;
+              break;
+          case 'ROLEBLOCK':
+              if (role === 'escort') this.nightActions.escortTargets[senderId] = targetId;
+              break;
+          case 'FRAME':
+              if (role === 'framer') this.nightActions.framerTargets[senderId] = targetId;
+              break;
+          case 'WATCH':
+              if (role === 'lookout') this.nightActions.lookoutTargets[senderId] = targetId;
+              break;
+          case 'ALERT':
+              // Self-targeting and charge-limited.
+              if (role === 'veteran' && this.chargesLeft(senderId, role) > 0) {
+                  this.nightActions.veteranAlerts[senderId] = true;
+              }
+              break;
+          case 'VEST':
+              if (role === 'survivor' && this.chargesLeft(senderId, role) > 0) {
+                  this.nightActions.survivorVests[senderId] = true;
+              }
+              break;
+          case 'CONTROL':
+              if (role === 'witch' && secondTargetId) {
+                  this.nightActions.witchControls[senderId] = {
+                      victimId: targetId,
+                      newTargetId: secondTargetId,
+                  };
+              }
+              break;
       }
   }
 
@@ -1585,7 +1610,12 @@ class NetworkManager {
 
       case 'NIGHT_ACTION':
           if (store.myId === store.hostId) {
-              this.handleNightAction(message.senderId, message.payload.action, message.payload.targetId);
+              this.handleNightAction(
+                  message.senderId,
+                  message.payload.action,
+                  message.payload.targetId,
+                  message.payload.secondTargetId
+              );
           }
           break;
 

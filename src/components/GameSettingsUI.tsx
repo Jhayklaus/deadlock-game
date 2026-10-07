@@ -111,7 +111,15 @@ export default function GameSettingsUI() {
           </h4>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 gap-4">
-            {(['mafia', 'detective', 'doctor', 'vigilante', 'mayor', 'serial_killer', 'jester', 'bodyguard', 'medium'] as const).map((role) => (
+            {([
+              // Town
+              'detective', 'doctor', 'bodyguard', 'vigilante', 'mayor', 'medium',
+              'escort', 'veteran', 'lookout', 'spy',
+              // Mafia
+              'mafia', 'framer',
+              // Neutral
+              'serial_killer', 'jester', 'survivor', 'executioner', 'witch',
+            ] as const).map((role) => (
                 <div key={role} className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition group">
                 <div className="flex justify-between items-center mb-4">
                     <span className="capitalize font-bold text-slate-200">{role.replace('_', ' ')}</span>

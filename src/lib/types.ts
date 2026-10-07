@@ -1,6 +1,49 @@
 export type PlayerId = string;
 
-export type Role = 'mafia' | 'detective' | 'doctor' | 'civilian' | 'vigilante' | 'mayor' | 'serial_killer' | 'jester' | 'bodyguard' | 'medium';
+export type Role =
+  // Town
+  | 'civilian'
+  | 'detective'
+  | 'doctor'
+  | 'bodyguard'
+  | 'vigilante'
+  | 'mayor'
+  | 'medium'
+  | 'escort'       // blocks a target's night action
+  | 'veteran'      // can go on alert and kill anyone who visits
+  | 'lookout'      // sees who visited their target
+  | 'spy'          // learns where the Mafia struck
+  // Mafia
+  | 'mafia'
+  | 'framer'       // makes a target read as suspicious to the Detective
+  // Neutral
+  | 'serial_killer'
+  | 'jester'
+  | 'survivor'     // wins by being alive at the end; has limited vests
+  | 'executioner'  // wins if their assigned target is voted out
+  | 'witch';       // redirects another player's night action
+
+/** Roles that win with the Town. */
+export const TOWN_ROLES: ReadonlyArray<Role> = [
+  'civilian', 'detective', 'doctor', 'bodyguard', 'vigilante',
+  'mayor', 'medium', 'escort', 'veteran', 'lookout', 'spy',
+];
+
+/** Roles that win with the Mafia. */
+export const MAFIA_ROLES: ReadonlyArray<Role> = ['mafia', 'framer'];
+
+/** Roles that win on their own terms. */
+export const NEUTRAL_ROLES: ReadonlyArray<Role> = [
+  'serial_killer', 'jester', 'survivor', 'executioner', 'witch',
+];
+
+export function isTownRole(role: Role | undefined): boolean {
+  return !!role && TOWN_ROLES.includes(role);
+}
+
+export function isMafiaRole(role: Role | undefined): boolean {
+  return !!role && MAFIA_ROLES.includes(role);
+}
 
 // ─── v2: Game Mode System ─────────────────────────────────────────────────────
 
@@ -21,6 +64,16 @@ export type ModeRoleId =
   | 'blank'              // undercover: has no word at all
   | 'frequency_civilian' // frequency_spy: has the target number
   | 'frequency_spy';     // frequency_spy: has a divergent number
+
+/** Who took a classic-mafia game. */
+export type ClassicWinner =
+  | 'town'
+  | 'mafia'
+  | 'serial_killer'
+  | 'jester'
+  | 'survivor'
+  | 'executioner'
+  | 'witch';
 
 export interface WinResult {
   readonly winnerId: string;
@@ -137,7 +190,7 @@ export interface GameState {
   eliminationResult: { eliminatedId: PlayerId | null; resultText: string } | null;
   // Current vote counts (for voting phase UI)
   voteCounts: Record<PlayerId, number>;
-  winner: 'town' | 'mafia' | 'serial_killer' | 'jester' | null;
+  winner: ClassicWinner | null;
   allRoles: Record<PlayerId, Role> | null;
   settings: GameSettings;
   messages: ChatMessage[];
@@ -164,6 +217,8 @@ export interface GameState {
   allModeRoles: Record<PlayerId, string>;
   // Current discussion round, 1-based (non-classic modes loop over rounds)
   round: number;
+  // Neutral roles that met their own goal, revealed at game over
+  alsoWon: PlayerId[];
 }
 
 export interface GameSettings {
@@ -187,6 +242,14 @@ export interface GameSettings {
     jester: { count: number; chance: number };
     bodyguard: { count: number; chance: number };
     medium: { count: number; chance: number };
+    escort: { count: number; chance: number };
+    veteran: { count: number; chance: number };
+    lookout: { count: number; chance: number };
+    spy: { count: number; chance: number };
+    framer: { count: number; chance: number };
+    survivor: { count: number; chance: number };
+    executioner: { count: number; chance: number };
+    witch: { count: number; chance: number };
   };
 }
 
@@ -272,11 +335,25 @@ export interface RoleAssignMessage extends BaseMessage {
   };
 }
 
+export type NightActionType =
+  | 'KILL'        // mafia, vigilante, serial killer
+  | 'SAVE'        // doctor
+  | 'INVESTIGATE' // detective
+  | 'PROTECT'     // bodyguard
+  | 'ROLEBLOCK'   // escort
+  | 'FRAME'       // framer
+  | 'ALERT'       // veteran — targets themselves
+  | 'WATCH'       // lookout
+  | 'VEST'        // survivor — targets themselves
+  | 'CONTROL';    // witch — needs secondTargetId
+
 export interface NightActionMessage extends BaseMessage {
   type: 'NIGHT_ACTION';
   payload: {
-    action: 'KILL' | 'SAVE' | 'INVESTIGATE' | 'PROTECT';
+    action: NightActionType;
     targetId: PlayerId;
+    /** Witch only: where the controlled player's action is redirected. */
+    secondTargetId?: PlayerId;
   };
 }
 
@@ -306,8 +383,10 @@ export interface VoteUpdateMessage extends BaseMessage {
 export interface GameOverMessage extends BaseMessage {
   type: 'GAME_OVER';
   payload: {
-    winner: 'town' | 'mafia' | 'serial_killer' | 'jester';
+    winner: ClassicWinner;
     roles: Record<PlayerId, Role>;
+    /** Neutral roles that also achieved their own goal this game. */
+    alsoWon?: PlayerId[];
   };
 }
 

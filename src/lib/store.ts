@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage, GameModeId, ModeRoleId, UiScreen } from './types';
+import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage, GameModeId, ModeRoleId, UiScreen, ClassicWinner } from './types';
 
 interface GameActions {
   setMyId: (id: PlayerId) => void;
@@ -16,7 +16,7 @@ interface GameActions {
   setLastNightResult: (result: string) => void;
   setEliminationResult: (result: { eliminatedId: PlayerId | null; resultText: string } | null) => void;
   setVoteCounts: (counts: Record<PlayerId, number>) => void;
-  setGameOver: (winner: 'town' | 'mafia' | 'serial_killer' | 'jester', allRoles: Record<PlayerId, Role>) => void;
+  setGameOver: (winner: ClassicWinner, allRoles: Record<PlayerId, Role>) => void;
   resetGame: () => void;
   resetSession: () => void;
   resetToLobby: () => void;
@@ -43,6 +43,7 @@ interface GameActions {
   setSelectedMode: (mode: GameModeId) => void;
   setAllModeRoles: (roles: Record<PlayerId, string>) => void;
   setRound: (round: number) => void;
+  setAlsoWon: (ids: PlayerId[]) => void;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -61,6 +62,15 @@ const DEFAULT_SETTINGS: GameSettings = {
     jester: { count: 1, chance: 30 },
     bodyguard: { count: 1, chance: 50 },
     medium: { count: 1, chance: 50 },
+    // New roles default to off so existing hosts keep the setup they know.
+    escort: { count: 0, chance: 100 },
+    veteran: { count: 0, chance: 100 },
+    lookout: { count: 0, chance: 100 },
+    spy: { count: 0, chance: 100 },
+    framer: { count: 0, chance: 100 },
+    survivor: { count: 0, chance: 100 },
+    executioner: { count: 0, chance: 100 },
+    witch: { count: 0, chance: 100 },
   }
 };
 
@@ -99,6 +109,7 @@ const initialState: GameState = {
   modeWinnerDescription: null,
   allModeRoles: {},
   round: 1,
+  alsoWon: [],
 };
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -189,6 +200,7 @@ export const useGameStore = create<GameState & GameActions>()(
           modeWinnerDescription: null,
           allModeRoles: {},
           round: 1,
+          alsoWon: [],
           uiScreen: 'in_lobby' as UiScreen,
         };
       }),
@@ -219,6 +231,7 @@ export const useGameStore = create<GameState & GameActions>()(
       setSelectedMode: (selectedMode) => set({ selectedMode }),
       setAllModeRoles: (allModeRoles) => set({ allModeRoles }),
       setRound: (round) => set({ round }),
+      setAlsoWon: (alsoWon) => set({ alsoWon }),
     }),
     {
       name: 'tno-game-storage',

@@ -1,4 +1,4 @@
-import { Player, Role, PlayerId } from './types';
+import { Player, Role, PlayerId, NightActionType } from './types';
 import { generateAIResponse } from './ai';
 import { ROLE_DEFINITIONS } from './roleData';
 
@@ -50,7 +50,7 @@ export async function getBotNightAction(
   players: Record<PlayerId, Player>, 
   allRoles: Record<PlayerId, Role>,
   gameHistory: string = ""
-): Promise<{ action: 'KILL' | 'SAVE' | 'INVESTIGATE', targetId: PlayerId } | null> {
+): Promise<{ action: NightActionType; targetId: PlayerId; secondTargetId?: PlayerId } | null> {
   
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
   const deadPlayers = Object.values(players).filter(p => !p.isAlive).map(p => p.name).join(', ');
@@ -62,7 +62,7 @@ export async function getBotNightAction(
   
   // Prepare prompt based on role
   let goal = "";
-  let actionType: 'KILL' | 'SAVE' | 'INVESTIGATE' | null = null;
+  let actionType: NightActionType | null = null;
 
   switch (role) {
     case 'mafia':
@@ -93,8 +93,35 @@ export async function getBotNightAction(
       break;
     case 'bodyguard':
       goal = "You are the BODYGUARD. Protect a valuable town member. Do not try to protect dead players.";
-      actionType = 'PROTECT' as any; // Using PROTECT internally if needed, or mapping to SAVE logic
+      actionType = 'PROTECT';
       break;
+    case 'escort':
+      goal = "You are the ESCORT. Block one player's night action. Target whoever you most suspect of being evil.";
+      actionType = 'ROLEBLOCK';
+      break;
+    case 'lookout':
+      goal = "You are the LOOKOUT. Watch one player to see who visits them tonight. Watch someone likely to be targeted.";
+      actionType = 'WATCH';
+      break;
+    case 'framer':
+      goal = "You are the FRAMER, working with the Mafia. Frame an innocent Town player so the Detective reads them as suspicious.";
+      actionType = 'FRAME';
+      break;
+    case 'witch':
+      goal = "You are the WITCH. Control one player and redirect their night action at someone else.";
+      actionType = 'CONTROL';
+      break;
+
+    // Self-targeting abilities. These are charge-limited, so a bot that spends
+    // them every night would burn out immediately — hold them back most nights.
+    case 'veteran':
+      if (Math.random() > 0.3) return null;
+      return { action: 'ALERT', targetId: botId };
+    case 'survivor':
+      if (Math.random() > 0.35) return null;
+      return { action: 'VEST', targetId: botId };
+
+    // Spy listens passively, Executioner works in daylight, and the rest sleep.
     default:
       return null;
   }
@@ -132,7 +159,13 @@ export async function getBotNightAction(
   const target = alivePlayers.find(p => responseName.toLowerCase().includes(p.name.toLowerCase()));
 
   if (target) {
-    return { action: actionType as any, targetId: target.id };
+    if (actionType === 'CONTROL') {
+      const others = alivePlayers.filter(p => p.id !== target.id);
+      if (others.length === 0) return null;
+      const redirect = others[Math.floor(Math.random() * others.length)];
+      return { action: actionType, targetId: target.id, secondTargetId: redirect.id };
+    }
+    return { action: actionType, targetId: target.id };
   }
 
   // Fallback to random if AI fails

@@ -91,6 +91,20 @@ const classicMafia: ModeGuide = {
         'The Town wins by eliminating every Mafia member and killer. The Mafia win once they equal the number of remaining townspeople, because from there they cannot be outvoted. Neutral roles like the Jester have their own private goal and can win on their own terms.',
     },
     {
+      icon: 'eye',
+      title: 'Beyond the basics',
+      body:
+        'Hosts can switch on extra roles, and they change how the night works. An Escort blocks someone\u2019s action outright. A Framer makes an innocent read as Mafia to the Detective. A Lookout sees everyone who visits a player — the hardest evidence in the game. A Veteran can go on alert and kill anyone who comes to their door, which includes the Doctor coming to help. And some players answer to nobody: a Survivor just needs to be alive at the end, while an Executioner only wants one specific person lynched.',
+      example: {
+        label: 'Why night order matters',
+        lines: [
+          'The Escort blocks the Doctor → the Mafia kill gets through',
+          'The Framer marks you  → the Detective reads you as Mafia',
+          'You visit an alert Veteran → you die, however innocent you are',
+        ],
+      },
+    },
+    {
       icon: 'lightbulb',
       title: 'Tips for your first game',
       body:

@@ -14,7 +14,7 @@ interface GameActions {
   setMyRole: (role: Role, mafiaPartners?: PlayerId[]) => void;
   setAllRoles: (roles: Record<PlayerId, Role>) => void;
   setLastNightResult: (result: string) => void;
-  setEliminationResult: (result: { eliminatedId: PlayerId | null; resultText: string } | null) => void;
+  setEliminationResult: (result: GameState['eliminationResult']) => void;
   setVoteCounts: (counts: Record<PlayerId, number>) => void;
   setGameOver: (winner: ClassicWinner, allRoles: Record<PlayerId, Role>) => void;
   resetGame: () => void;

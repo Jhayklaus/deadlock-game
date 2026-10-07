@@ -193,7 +193,17 @@ export interface GameState {
   // Result of the night phase
   lastNightResult: string;
   // Result of the elimination phase
-  eliminationResult: { eliminatedId: PlayerId | null; resultText: string } | null;
+  eliminationResult: {
+    eliminatedId: PlayerId | null;
+    resultText: string;
+    /**
+     * What the eliminated player turned out to be, already humanised
+     * ("Impostor", "Undercover", "Crew"). Side modes have no classic Role, so
+     * without this the reveal screen had nothing to show and fell through to
+     * its "nobody was eliminated" card.
+     */
+    revealedRole?: string | null;
+  } | null;
   // Current vote counts (for voting phase UI)
   voteCounts: Record<PlayerId, number>;
   winner: ClassicWinner | null;

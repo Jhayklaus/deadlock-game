@@ -423,10 +423,37 @@ class NetworkManager {
       this.hostPrivateState = next;
   }
 
+  /**
+   * Humanised label for a mode role, shown on the elimination reveal.
+   *
+   * Side modes carry no classic `Role`, so without this the reveal had nothing
+   * to display and wrongly rendered its "nobody was eliminated" card.
+   */
+  private modeRoleLabel(playerId: string): string | null {
+      const roleId = this.modeRoles[playerId];
+      if (!roleId) return null;
+      const labels: Record<string, string> = {
+          impostor: 'The Impostor',
+          crewmate: 'Crewmate',
+          undercover: 'Undercover',
+          common: 'Civilian',
+          blank: 'Blank',
+          frequency_spy: 'The Spy',
+          frequency_civilian: 'Civilian',
+          station_impostor: 'Impostor',
+          station_crew: 'Crew',
+      };
+      return labels[roleId] ?? roleId.replace(/_/g, ' ');
+  }
+
   /** Shows the elimination reveal, then loops into the next round. */
   private enterEliminationReveal(eliminatedId: string | null, resultText: string) {
       const store = useGameStore.getState();
-      const eliminationResult = { eliminatedId, resultText };
+      const eliminationResult = {
+          eliminatedId,
+          resultText,
+          revealedRole: eliminatedId ? this.modeRoleLabel(eliminatedId) : null,
+      };
       const duration = 6000;
       const timerEnd = Date.now() + duration;
 
@@ -1956,7 +1983,12 @@ class NetworkManager {
   /** Shows the day's outcome, then night falls. */
   private enterClassicReveal(eliminatedId: string | null, resultText: string) {
       const store = useGameStore.getState();
-      const eliminationResult = { eliminatedId, resultText };
+      const role = eliminatedId ? (store.allRoles || {})[eliminatedId] : null;
+      const eliminationResult = {
+          eliminatedId,
+          resultText,
+          revealedRole: role ? role.replace(/_/g, ' ') : null,
+      };
       const duration = 8000;
       const timerEnd = Date.now() + duration;
 

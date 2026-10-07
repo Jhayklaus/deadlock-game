@@ -42,6 +42,7 @@ interface GameActions {
   setUiScreen: (screen: UiScreen) => void;
   setSelectedMode: (mode: GameModeId) => void;
   setAllModeRoles: (roles: Record<PlayerId, string>) => void;
+  setRound: (round: number) => void;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -96,6 +97,7 @@ const initialState: GameState = {
   modeWinnerLabel: null,
   modeWinnerDescription: null,
   allModeRoles: {},
+  round: 1,
 };
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -185,6 +187,7 @@ export const useGameStore = create<GameState & GameActions>()(
           modeWinnerLabel: null,
           modeWinnerDescription: null,
           allModeRoles: {},
+          round: 1,
           uiScreen: 'in_lobby' as UiScreen,
         };
       }),
@@ -214,6 +217,7 @@ export const useGameStore = create<GameState & GameActions>()(
       setUiScreen: (uiScreen) => set({ uiScreen }),
       setSelectedMode: (selectedMode) => set({ selectedMode }),
       setAllModeRoles: (allModeRoles) => set({ allModeRoles }),
+      setRound: (round) => set({ round }),
     }),
     {
       name: 'tno-game-storage',
@@ -246,6 +250,7 @@ export const useGameStore = create<GameState & GameActions>()(
         modeWinnerLabel: state.modeWinnerLabel,
         modeWinnerDescription: state.modeWinnerDescription,
         allModeRoles: state.allModeRoles,
+        round: state.round,
       }),
     }
   )

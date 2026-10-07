@@ -6,7 +6,12 @@
  * Spy receives a number far from the group's number. Players give one-word
  * clues hinting at their number. Vote to find the Spy.
  *
- * Phase flow: role_assignment → day_discussion → voting → elimination_reveal → game_over
+ * MULTI-ROUND: voting out a Civilian does NOT end the game — play loops back
+ * into another discussion round. The game ends only when the Spy is voted out
+ * (Civilians win) or the Spy reaches numerical parity with the Civilians
+ * (Spy wins).
+ *
+ * Phase flow: role_assignment → (day_discussion → voting → elimination_reveal)* → game_over
  *
  * 🎲 BALANCE NOTE: The Spy has a higher win rate than Word Impostor (~50%)
  * because the clue-number mapping is subjective. Playtesting recommended.
@@ -104,7 +109,9 @@ export const frequencySpyMode: GameModeDefinition = {
       case 'role_assignment': return 'day_discussion';
       case 'day_discussion': return 'voting';
       case 'voting': return 'elimination_reveal';
-      case 'elimination_reveal': return 'game_over';
+      // Loop back for another round. NetworkManager checks the win condition
+      // first and only reaches here when nobody has won yet.
+      case 'elimination_reveal': return 'day_discussion';
       default: return 'game_over';
     }
   },

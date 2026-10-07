@@ -126,6 +126,12 @@ class NetworkManager {
   }
 
   private handlePhaseTimeout(phase: GamePhase) {
+      // Stale-timer guard. A phase can be resolved before its clock runs out
+      // (e.g. an eliminated impostor submits their guess early), which leaves
+      // an orphaned setTimeout behind. Without this guard that stale timer
+      // fires into the *next* round and resolves it a second time.
+      if (useGameStore.getState().phase !== phase) return;
+
       if (this.activeModeId === 'classic_mafia') {
           // ── Classic Mafia: original hardcoded phase transitions ────────────
           switch (phase) {
@@ -161,7 +167,7 @@ class NetworkManager {
                   this.resolveModeImpostorGuess();
                   break;
               case 'elimination_reveal':
-                  this.endModeGame();
+                  this.startNextModeRound();
                   break;
           }
       }
@@ -173,16 +179,105 @@ class NetworkManager {
       const store = useGameStore.getState();
       const duration = store.settings.discussionDuration * 1000;
       const timerEnd = Date.now() + duration;
+      const round = Number(this.hostPrivateState.round ?? 1);
 
       this.broadcast({
           type: 'PHASE_CHANGE',
           senderId: store.myId,
-          payload: { phase: 'day_discussion', timerEnd }
+          payload: { phase: 'day_discussion', timerEnd, payload: { round } }
       });
       store.setPhase('day_discussion');
       store.setTimerEnd(timerEnd);
+      store.setRound(round);
       this.startBotChatLoop('day');
       setTimeout(() => this.handlePhaseTimeout('day_discussion'), duration);
+  }
+
+  /**
+   * Advances a non-classic mode into its next discussion round.
+   *
+   * Called when an elimination reveal finishes. The game ends here only if the
+   * mode's own win condition is satisfied, the table is too small to keep
+   * playing, or the round cap is hit — otherwise play loops onward.
+   */
+  private startNextModeRound() {
+      const store = useGameStore.getState();
+      const mode = getMode(this.activeModeId);
+
+      // The mode decides whether anybody has actually won yet.
+      const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
+      if (winResult) {
+          this.broadcastModeGameOver(winResult.winnerId, winResult.winnerLabel, winResult.description);
+          return;
+      }
+
+      // Too few players left to hold a meaningful vote — the hidden team has
+      // survived to the end, so they take it.
+      const aliveCount = Object.values(store.players).filter(p => p.isAlive).length;
+      if (aliveCount < 3) {
+          const { winnerId, winnerLabel } = this.hiddenTeamIdentity();
+          this.broadcastModeGameOver(
+              winnerId,
+              winnerLabel,
+              'Too few players remain to keep voting — they survived to the end.'
+          );
+          return;
+      }
+
+      // Round cap: a table that keeps skipping its votes should not loop
+      // forever. Surviving the cap counts as a win for the hidden team.
+      const round = Number(this.hostPrivateState.round ?? 1);
+      const maxRounds = Number(this.hostPrivateState.maxRounds ?? 12);
+      if (round >= maxRounds) {
+          const { winnerId, winnerLabel } = this.hiddenTeamIdentity();
+          this.broadcastModeGameOver(
+              winnerId,
+              winnerLabel,
+              `Survived all ${maxRounds} rounds without being caught.`
+          );
+          return;
+      }
+
+      this.hostPrivateState = { ...this.hostPrivateState, round: round + 1 };
+      this.broadcastSystemMessage(`── Round ${round + 1} ── Discussion begins.`);
+      this.startModeDayPhase();
+  }
+
+  /** The winning id/label for the hidden team of the active mode. */
+  private hiddenTeamIdentity(): { winnerId: string; winnerLabel: string } {
+      switch (this.activeModeId) {
+          case 'word_impostor': return { winnerId: 'impostor', winnerLabel: 'The Impostor' };
+          case 'undercover':    return { winnerId: 'undercover', winnerLabel: 'The Undercoverts' };
+          case 'frequency_spy': return { winnerId: 'frequency_spy', winnerLabel: 'The Spy' };
+          default:              return { winnerId: 'mafia', winnerLabel: 'The Mafia' };
+      }
+  }
+
+  /** Drops any settled impostor-guess bookkeeping so a later round starts clean. */
+  private clearGuessState() {
+      const next = { ...this.hostPrivateState };
+      delete next.impostorGuess;
+      delete next.guessCorrect;
+      delete next.guessResolved;
+      this.hostPrivateState = next;
+  }
+
+  /** Shows the elimination reveal, then loops into the next round. */
+  private enterEliminationReveal(eliminatedId: string | null, resultText: string) {
+      const store = useGameStore.getState();
+      const eliminationResult = { eliminatedId, resultText };
+      const duration = 6000;
+      const timerEnd = Date.now() + duration;
+
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'elimination_reveal', payload: { eliminationResult }, timerEnd }
+      });
+      store.setPhase('elimination_reveal');
+      store.setEliminationResult(eliminationResult);
+      store.setTimerEnd(timerEnd);
+      setTimeout(() => this.handlePhaseTimeout('elimination_reveal'), duration);
   }
 
   private resolveModeVotingPhase() {
@@ -230,7 +325,20 @@ class NetworkManager {
           this.broadcastSystemMessage(resultText);
       }
 
-      // Check mode win condition
+      // Word Impostor: an eliminated Impostor is owed a final guess at the word
+      // BEFORE any win is awarded, so this branch runs ahead of the win check.
+      if (this.activeModeId === 'word_impostor' && eliminatedId) {
+          const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+          if (impostorIds.includes(eliminatedId)) {
+              this.clearGuessState();
+              this.hostPrivateState = { ...this.hostPrivateState, guessResolved: false };
+              this.startImpostorGuessPhase(eliminatedId);
+              return;
+          }
+      }
+
+      // Has anybody actually won? Voting out an innocent is NOT a loss — it
+      // just costs the town a player and the game plays on.
       const mode = getMode(this.activeModeId);
       const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
 
@@ -239,36 +347,8 @@ class NetworkManager {
           return;
       }
 
-      // Word Impostor: if impostor was voted out → impostor_guess phase
-      if (this.activeModeId === 'word_impostor' && eliminatedId) {
-          const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
-          if (impostorIds.includes(eliminatedId)) {
-              // Impostor voted out — give them a guess
-              this.startImpostorGuessPhase(eliminatedId);
-              return;
-          } else {
-              // Innocent eliminated — impostor wins
-              const secretWord = String(this.hostPrivateState.secretWord ?? '');
-              this.broadcastSystemMessage(`An innocent player was eliminated! The secret word was "${secretWord}". The Impostor wins!`);
-              this.broadcastModeGameOver('impostor', 'The Impostor', 'An innocent player was eliminated.');
-              return;
-          }
-      }
-
-      // Default: show elimination_reveal then end
-      const eliminationResult = { eliminatedId, resultText };
-      const duration = 6000;
-      const timerEnd = Date.now() + duration;
-
-      this.broadcast({
-          type: 'PHASE_CHANGE',
-          senderId: store.myId,
-          payload: { phase: 'elimination_reveal', payload: { eliminationResult }, timerEnd }
-      });
-      store.setPhase('elimination_reveal');
-      store.setEliminationResult(eliminationResult);
-      store.setTimerEnd(timerEnd);
-      setTimeout(() => this.handlePhaseTimeout('elimination_reveal'), duration);
+      // Nobody won — reveal the elimination, then loop into the next round.
+      this.enterEliminationReveal(eliminatedId, resultText);
   }
 
   private startImpostorGuessPhase(impostorId: string) {
@@ -297,18 +377,34 @@ class NetworkManager {
 
   resolveModeImpostorGuess() {
       const store = useGameStore.getState();
-      // If timer expired without a guess, treat as wrong
+      // Timer expired without a guess — treat it as a wrong one.
       if (this.hostPrivateState.impostorGuess === undefined) {
           this.hostPrivateState = { ...this.hostPrivateState, impostorGuess: '', guessCorrect: false };
       }
 
       const correct = Boolean(this.hostPrivateState.guessCorrect);
       const secretWord = String(this.hostPrivateState.secretWord ?? '');
-      const guess = String(this.hostPrivateState.impostorGuess ?? '(no guess)');
+      const guess = String(this.hostPrivateState.impostorGuess ?? '');
+      const guessedId = store.impostorGuessPlayerId;
+      const guesserName = (guessedId && store.players[guessedId]?.name) || 'The Impostor';
 
-      const resultText = correct
-          ? `The Impostor guessed correctly! The word was "${secretWord}". Impostor wins!`
-          : `Time's up! The Impostor guessed "${guess}" but the word was "${secretWord}". Crewmates win!`;
+      // Mark the guess settled so the mode's win check can now award the
+      // Crewmates their win if this was the last Impostor standing.
+      this.hostPrivateState = { ...this.hostPrivateState, guessResolved: true };
+
+      // Are there Impostors still in play after this one?
+      const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+      const impostorsLeft = impostorIds.filter(id => store.players[id]?.isAlive).length;
+
+      let resultText: string;
+      if (correct) {
+          resultText = `${guesserName} guessed correctly! The word was "${secretWord}". The Impostors win!`;
+      } else {
+          const attempt = guess ? `guessed "${guess}"` : 'ran out of time';
+          resultText = impostorsLeft > 0
+              ? `${guesserName} ${attempt} — wrong! But another Impostor is still among you.`
+              : `${guesserName} ${attempt} but the word was "${secretWord}".`;
+      }
 
       this.broadcastSystemMessage(resultText);
 
@@ -325,9 +421,22 @@ class NetworkManager {
 
       if (correct) {
           this.broadcastModeGameOver('impostor', 'The Impostor', `Guessed the secret word "${secretWord}"!`);
-      } else {
-          this.broadcastModeGameOver('crewmates', 'The Crewmates', `The Impostor failed to guess the word.`);
+          return;
       }
+
+      // A wrong guess only ends the game if no Impostor is left to carry on.
+      const mode = getMode(this.activeModeId);
+      const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
+      if (winResult) {
+          this.broadcastModeGameOver(winResult.winnerId, winResult.winnerLabel, winResult.description);
+          return;
+      }
+
+      // Impostors remain — clear the settled guess and play on.
+      this.clearGuessState();
+      store.setWordGuessResult(null);
+      store.setImpostorGuessPlayerId(null);
+      this.enterEliminationReveal(guessedId, resultText);
   }
 
   /** Public: called by ImpostorGuess UI component */
@@ -366,18 +475,6 @@ class NetworkManager {
 
       // Resolve immediately on guess (don't wait for timer)
       this.resolveModeImpostorGuess();
-  }
-
-  private endModeGame() {
-      const store = useGameStore.getState();
-      const mode = getMode(this.activeModeId);
-      const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
-
-      if (winResult) {
-          this.broadcastModeGameOver(winResult.winnerId, winResult.winnerLabel, winResult.description);
-      } else {
-          this.broadcastModeGameOver('draw', 'Nobody', 'The game ended without a winner.');
-      }
   }
 
   private broadcastModeGameOver(winnerId: string, winnerLabel: string, description: string) {
@@ -566,8 +663,14 @@ class NetworkManager {
           const { perPlayerPayloads, hostPrivateState } = mode.buildGameStartData(
               playerIds, modeRoles, store.settings
           );
-          // Store private state on Host — NEVER broadcast
-          this.hostPrivateState = hostPrivateState;
+          // Store private state on Host — NEVER broadcast.
+          // `round` drives the multi-round loop; `maxRounds` caps a table that
+          // keeps skipping its votes so a game can never loop forever.
+          this.hostPrivateState = {
+              ...hostPrivateState,
+              round: 1,
+              maxRounds: playerIds.length + 3,
+          };
 
           players.forEach(player => {
               if (player.isBot) return;
@@ -1444,6 +1547,9 @@ class NetworkManager {
             }
             if (message.payload.payload?.impostorGuessPlayerId) {
                 store.setImpostorGuessPlayerId(message.payload.payload.impostorGuessPlayerId);
+            }
+            if (typeof message.payload.payload?.round === 'number') {
+                store.setRound(message.payload.payload.round);
             }
             if (message.payload.timerEnd) {
               store.setTimerEnd(message.payload.timerEnd);

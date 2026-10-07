@@ -2,11 +2,17 @@
  * Word Impostor Mode
  *
  * Inspired by Spyfall. Crewmates share a secret word; Impostors know only
- * the category. Players give clues, then vote. If the Impostor is voted out
+ * the category. Players give clues, then vote. If an Impostor is voted out
  * they get one final chance to guess the word.
  *
- * Phase flow: role_assignment → day_discussion → voting →
- *   [impostor_guess if impostor eliminated] → game_over
+ * MULTI-ROUND: voting out an innocent does NOT end the game — play loops back
+ * into another discussion round. The game ends only when every Impostor has
+ * been voted out (Crewmates win), an Impostor guesses the word (Impostors
+ * win), or the Impostors reach numerical parity with the Crewmates
+ * (Impostors win).
+ *
+ * Phase flow: role_assignment → (day_discussion → voting →
+ *   [impostor_guess if an impostor was eliminated] → elimination_reveal)* → game_over
  *
  * SECRECY: secretWord lives ONLY in hostPrivateState, which is never forwarded
  * to any client. Impostor receives assignedWord: null.
@@ -30,6 +36,7 @@ const PHASES: ReadonlyArray<GamePhase> = [
   'day_discussion',
   'voting',
   'impostor_guess',
+  'elimination_reveal',
   'game_over',
 ];
 
@@ -105,13 +112,16 @@ export const wordImpostorMode: GameModeDefinition = {
         return 'voting';
       case 'voting':
         // Branching is handled by NetworkManager after vote resolution.
-        // If impostor voted out → impostor_guess; else → game_over.
-        // This fallback is safe because NetworkManager overrides it.
+        // If an impostor was voted out → impostor_guess; else → elimination_reveal.
         return (hostPrivateState.eliminatedIsImpostor as boolean)
           ? 'impostor_guess'
-          : 'game_over';
+          : 'elimination_reveal';
       case 'impostor_guess':
-        return 'game_over';
+        return 'elimination_reveal';
+      case 'elimination_reveal':
+        // Loop back for another round. NetworkManager checks the win
+        // condition first and only reaches here when nobody has won yet.
+        return 'day_discussion';
       default:
         return 'game_over';
     }
@@ -148,48 +158,48 @@ export const wordImpostorMode: GameModeDefinition = {
     return { publicPayload: {} as Record<string, string | number | boolean | null>, updatedPrivateState: hostPrivateState };
   },
 
-  checkWinCondition(players, hostPrivateState, lastAction): WinResult | null {
-    // Win via guess result (called after resolvePhase for impostor_guess)
-    if (
-      hostPrivateState.impostorGuess !== undefined &&
-      hostPrivateState.guessCorrect !== undefined
-    ) {
-      if (Boolean(hostPrivateState.guessCorrect)) {
-        return {
-          winnerId: 'impostor',
-          winnerLabel: 'The Impostor',
-          description: `Guessed the secret word correctly!`,
-        };
-      }
-      return {
-        winnerId: 'crewmates',
-        winnerLabel: 'The Crewmates',
-        description: `The Impostor's guess was wrong.`,
-      };
-    }
+  checkWinCondition(players, hostPrivateState, _lastAction): WinResult | null {
+    const impostorIds = (hostPrivateState.impostorIds as string[]) ?? [];
+    if (impostorIds.length === 0) return null;
 
-    // Vote-phase win: if a non-impostor was eliminated (checked by NetworkManager)
-    if (
-      lastAction?.type === 'VOTE_RESOLVED' &&
-      lastAction.payload.eliminatedIsImpostor === false
-    ) {
+    // A correct guess from a voted-out Impostor wins outright, whatever else
+    // is true on the board.
+    if (hostPrivateState.guessCorrect === true) {
+      const secretWord = String(hostPrivateState.secretWord ?? '');
       return {
         winnerId: 'impostor',
         winnerLabel: 'The Impostor',
-        description: 'An innocent player was eliminated. The Impostor escapes!',
+        description: `Guessed the secret word "${secretWord}" correctly!`,
       };
     }
 
-    // Check if all impostors have been voted out (no living impostors)
-    const impostorIds = (hostPrivateState.impostorIds as string[]) ?? [];
-    const allImpostorsDead = impostorIds.every(id => !players[id]?.isAlive);
-    if (allImpostorsDead && impostorIds.length > 0) {
-      // Only trigger if the impostor didn't get a guess opportunity
-      // NetworkManager handles the impostor_guess branching, so this
-      // path fires if we skipped the guess (e.g. impostor was silent).
-      return null; // Let NetworkManager handle the impostor_guess phase
+    const alive = Object.values(players).filter(p => p.isAlive);
+    const aliveImpostors = alive.filter(p => impostorIds.includes(p.id)).length;
+    const aliveCrewmates = alive.length - aliveImpostors;
+
+    if (aliveImpostors === 0) {
+      // Every Impostor is out — but a freshly voted-out Impostor is still owed
+      // their guess. Returning null lets the host run `impostor_guess` first;
+      // it sets `guessResolved` once that guess has been settled.
+      if (hostPrivateState.guessResolved !== true) return null;
+      return {
+        winnerId: 'crewmates',
+        winnerLabel: 'The Crewmates',
+        description: 'Every Impostor was voted out and none guessed the word.',
+      };
     }
 
+    // Impostors take over once they match or outnumber the remaining Crewmates.
+    if (aliveImpostors >= aliveCrewmates) {
+      const secretWord = String(hostPrivateState.secretWord ?? '');
+      return {
+        winnerId: 'impostor',
+        winnerLabel: 'The Impostor',
+        description: `The Impostors outnumber the Crewmates. The word was "${secretWord}".`,
+      };
+    }
+
+    // Nobody has won — the game continues into another round.
     return null;
   },
 };

@@ -162,6 +162,8 @@ export interface GameState {
   modeWinnerDescription: string | null;
   // v2 mode roles revealed at game over (for all players)
   allModeRoles: Record<PlayerId, string>;
+  // Current discussion round, 1-based (non-classic modes loop over rounds)
+  round: number;
 }
 
 export interface GameSettings {

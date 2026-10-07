@@ -13,9 +13,9 @@ export default function RoleReveal() {
   const isBlank = myModeRoleId === 'blank';
 
   const roleLabel = isUndercover ? 'UNDERCOVER' : isBlank ? 'BLANK' : 'COMMON';
-  const roleColor = isUndercover ? 'text-amber-400' : isBlank ? 'text-slate-400' : 'text-emerald-400';
-  const borderColor = isUndercover ? 'border-amber-800/40' : isBlank ? 'border-slate-700/40' : 'border-emerald-800/40';
-  const bgColor = isUndercover ? 'from-amber-950/60 to-slate-950' : isBlank ? 'from-slate-900/80 to-slate-950' : 'from-slate-800/60 to-slate-950';
+  const roleColor = isUndercover ? 'text-amber-400' : isBlank ? 'text-ink-muted' : 'text-emerald-400';
+  const borderColor = isUndercover ? 'border-amber-800/40' : isBlank ? 'border-edge/60/40' : 'border-emerald-800/40';
+  const bgColor = isUndercover ? 'from-amber-950/60 to-base' : isBlank ? 'from-elevated/80 to-base' : 'from-surface/60 to-base';
   const RoleIcon = isUndercover ? Eye : isBlank ? Minus : EyeOff;
 
   return (
@@ -30,8 +30,8 @@ export default function RoleReveal() {
           </Badge>
 
           <div className="mb-6 relative">
-            <div className={`absolute inset-0 blur-2xl opacity-30 ${isUndercover ? 'bg-amber-500' : 'bg-slate-500'} rounded-full animate-pulse`} />
-            <div className={`relative p-5 rounded-2xl border ${borderColor} bg-slate-900/60`}>
+            <div className={`absolute inset-0 blur-2xl opacity-30 ${isUndercover ? 'bg-amber-500' : 'bg-surface'} rounded-full animate-pulse`} />
+            <div className={`relative p-5 rounded-2xl border ${borderColor} bg-elevated/60`}>
               <RoleIcon size={48} className={roleColor} />
             </div>
           </div>
@@ -45,19 +45,19 @@ export default function RoleReveal() {
 
           {/* Word display */}
           {!isBlank ? (
-            <div className={`w-full rounded-xl p-4 border mb-6 text-center ${isUndercover ? 'bg-amber-950/30 border-amber-800/40' : 'bg-slate-900/60 border-slate-700/40'}`}>
+            <div className={`w-full rounded-xl p-4 border mb-6 text-center ${isUndercover ? 'bg-amber-950/30 border-amber-800/40' : 'bg-elevated/60 border-edge/60/40'}`}>
               <p className={`text-xs uppercase tracking-widest mb-2 font-bold font-oswald ${isUndercover ? 'text-amber-400/70' : 'text-emerald-400/70'}`}>
                 Your Word
               </p>
-              <p className={`text-3xl font-black font-oswald ${isUndercover ? 'text-amber-200' : 'text-slate-100'}`}>
+              <p className={`text-3xl font-black font-oswald ${isUndercover ? 'text-amber-200' : 'text-ink'}`}>
                 {myAssignedWord ?? '...'}
               </p>
             </div>
           ) : (
-            <div className="w-full rounded-xl p-4 border border-slate-700/40 bg-slate-900/40 mb-6 text-center">
-              <p className="text-xs uppercase tracking-widest mb-2 font-bold text-slate-500 font-oswald">Your Word</p>
-              <p className="text-3xl font-black font-oswald text-slate-500 italic">NO WORD</p>
-              <p className="text-xs text-slate-600 mt-2">You have no word. Fake it!</p>
+            <div className="w-full rounded-xl p-4 border border-edge/60/40 bg-elevated/40 mb-6 text-center">
+              <p className="text-xs uppercase tracking-widest mb-2 font-bold text-ink-muted font-oswald">Your Word</p>
+              <p className="text-3xl font-black font-oswald text-ink-muted italic">NO WORD</p>
+              <p className="text-xs text-ink-muted/60 mt-2">You have no word. Fake it!</p>
             </div>
           )}
 

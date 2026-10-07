@@ -32,7 +32,7 @@ export default function RoleReveal() {
 
         <p className="text-sm text-ink-muted max-w-xs mx-auto leading-relaxed mb-6">
           {isImpostor
-            ? 'Kill the crew without being seen. Your tasks are fake — do them anyway, because standing idle is what gets people caught.'
+            ? 'Kill the crew without being seen, and break the station when you need a distraction. You cannot run tasks — the list below is only a cover story for when someone asks where you have been.'
             : 'Run your tasks and stay alive. Finish them all and the crew wins, even if nobody is ever caught.'}
         </p>
 

@@ -54,18 +54,18 @@ export default function ImpostorGuess() {
           <div className="p-3 bg-violet-900/30 rounded-xl border border-violet-500/30">
             <Crosshair size={28} className="text-violet-400" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-100 font-creepster tracking-wider">
+          <h2 className="text-2xl font-bold text-ink font-display">
             Impostor's Last Chance
           </h2>
-          <p className="text-slate-400 text-sm">
+          <p className="text-ink-muted text-sm">
             <span className="text-violet-300 font-bold">{guesserName}</span> was voted out.
             Can they name the secret word?
           </p>
         </div>
 
-        <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800">
-          <p className="text-xs text-slate-500 uppercase tracking-widest mb-1">Category</p>
-          <p className="text-lg font-bold text-slate-200">{myAssignedCategory ?? '—'}</p>
+        <div className="bg-base/60 rounded-xl p-3 border border-edge/50">
+          <p className="text-xs text-ink-muted uppercase tracking-widest mb-1">Category</p>
+          <p className="text-lg font-bold text-ink">{myAssignedCategory ?? '—'}</p>
         </div>
 
         {timerEnd && !wordGuessResult && (
@@ -88,11 +88,11 @@ export default function ImpostorGuess() {
               <CheckCircle size={40} className="text-emerald-400" />
             )}
             <div>
-              <p className="text-lg font-bold text-slate-100">
+              <p className="text-lg font-bold text-ink">
                 {wordGuessResult.correct ? 'Impostor Wins!' : 'Crewmates Win!'}
               </p>
-              <p className="text-slate-400 text-sm mt-1">
-                Guess: <span className="text-slate-300 font-mono">"{wordGuessResult.guess || 'no guess'}"</span>
+              <p className="text-ink-muted text-sm mt-1">
+                Guess: <span className="text-ink font-mono">"{wordGuessResult.guess || 'no guess'}"</span>
               </p>
             </div>
           </div>
@@ -115,7 +115,7 @@ export default function ImpostorGuess() {
               className="flex-1"
             />
             <Button
-              variant="primary"
+              variant="accent"
               onClick={handleSubmit}
               disabled={!guess.trim() || submitted}
             >
@@ -123,16 +123,16 @@ export default function ImpostorGuess() {
             </Button>
           </div>
           {submitted && (
-            <p className="text-xs text-slate-500 text-center italic">Guess submitted — waiting for result…</p>
+            <p className="text-xs text-ink-muted text-center italic">Guess submitted — waiting for result…</p>
           )}
         </Card>
       )}
 
       {/* Spectator message */}
       {!isGuesser && !wordGuessResult && (
-        <Card variant="glass" className="p-4 text-center border-slate-800">
-          <p className="text-slate-500 text-sm italic">
-            Watching <span className="text-slate-300">{guesserName}</span> attempt to guess the word…
+        <Card variant="glass" className="p-4 text-center border-edge/50">
+          <p className="text-ink-muted text-sm italic">
+            Watching <span className="text-ink">{guesserName}</span> attempt to guess the word…
           </p>
         </Card>
       )}

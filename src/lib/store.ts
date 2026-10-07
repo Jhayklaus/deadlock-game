@@ -14,7 +14,7 @@ interface GameActions {
   setMyRole: (role: Role, mafiaPartners?: PlayerId[]) => void;
   setAllRoles: (roles: Record<PlayerId, Role>) => void;
   setLastNightResult: (result: string) => void;
-  setEliminationResult: (result: { eliminatedId: PlayerId | null; resultText: string } | null) => void;
+  setEliminationResult: (result: GameState['eliminationResult']) => void;
   setVoteCounts: (counts: Record<PlayerId, number>) => void;
   setGameOver: (winner: ClassicWinner, allRoles: Record<PlayerId, Role>) => void;
   resetGame: () => void;
@@ -57,6 +57,11 @@ interface GameActions {
 const DEFAULT_SETTINGS: GameSettings = {
   voiceRoomUrl: null,
   nightTasksEnabled: true,
+  // Deadlock
+  deadlockImpostors: 1,
+  deadlockTasks: 3,
+  deadlockKillCooldown: 25,
+  deadlockSabotageCooldown: 35,
   trialEnabled: true,
   defenseDuration: 30,
   verdictDuration: 30,
@@ -96,6 +101,9 @@ const DEFAULT_DEADLOCK = {
   killReadyAt: 0,
   emergencyUsed: false,
   lastMeeting: null,
+  sabotage: null,
+  sabotageReadyAt: 0,
+  lastSeen: {},
 };
 
 const initialState: GameState = {

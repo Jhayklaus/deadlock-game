@@ -13,7 +13,7 @@ import { getScreens } from './components/screens/screenRegistry';
 function LoadingFallback() {
   return (
     <div className="flex items-center justify-center min-h-[300px]">
-      <div className="animate-spin h-8 w-8 border-4 border-slate-500 border-t-white rounded-full" />
+      <div className="animate-spin h-8 w-8 border-4 border-edge border-t-white rounded-full" />
     </div>
   );
 }

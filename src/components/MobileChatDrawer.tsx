@@ -48,7 +48,7 @@ export default function MobileChatDrawer({ channel = 'global' }: MobileChatDrawe
         className={clsx(
           "fixed bottom-6 right-6 z-40 p-4 rounded-full shadow-xl transition-all duration-300 lg:hidden hover:scale-110 active:scale-95",
           channel === 'mafia' ? "bg-red-600 text-white shadow-red-900/50" :
-            channel === 'dead' ? "bg-slate-700 text-slate-300 shadow-slate-900/50" :
+            channel === 'dead' ? "bg-surface text-ink shadow-black/40" :
               "bg-indigo-600 text-white shadow-indigo-900/50"
         )}
         aria-label="Open Chat"
@@ -72,23 +72,23 @@ export default function MobileChatDrawer({ channel = 'global' }: MobileChatDrawe
       {/* Drawer Content */}
       <div
         className={clsx(
-          "fixed bottom-0 left-0 right-0 z-50 h-[85vh] bg-slate-900 border-t border-slate-800 rounded-t-2xl shadow-2xl transition-transform duration-300 ease-out lg:hidden flex flex-col",
+          "fixed bottom-0 left-0 right-0 z-50 h-[85vh] bg-elevated border-t border-edge/50 rounded-t-2xl shadow-2xl transition-transform duration-300 ease-out lg:hidden flex flex-col",
           isOpen ? "translate-y-0" : "translate-y-full"
         )}
       >
         {/* Handle Bar */}
         <div
-          className="w-full p-2 flex justify-center items-center cursor-pointer hover:bg-slate-800/50 rounded-t-2xl transition-colors"
+          className="w-full p-2 flex justify-center items-center cursor-pointer hover:bg-surface/50 rounded-t-2xl transition-colors"
           onClick={() => setIsOpen(false)}
         >
-          <div className="w-12 h-1.5 bg-slate-700 rounded-full mb-1" />
+          <div className="w-12 h-1.5 bg-surface rounded-full mb-1" />
         </div>
 
         {/* Header */}
-        <div className="px-4 pb-4 flex justify-between items-center border-b border-slate-800/50">
+        <div className="px-4 pb-4 flex justify-between items-center border-b border-edge/50/50">
           <h3 className={clsx("font-bold text-lg flex items-center gap-2",
             channel === 'mafia' ? "text-red-500" :
-              channel === 'dead' ? "text-slate-400" :
+              channel === 'dead' ? "text-ink-muted" :
                 "text-indigo-400"
           )}>
             {channel === 'mafia' ? "Mafia Chat" :
@@ -97,7 +97,7 @@ export default function MobileChatDrawer({ channel = 'global' }: MobileChatDrawe
           </h3>
           <button
             onClick={() => setIsOpen(false)}
-            className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white"
+            className="p-2 hover:bg-surface rounded-full transition-colors text-ink-muted hover:text-white"
           >
             <ChevronDown size={24} />
           </button>

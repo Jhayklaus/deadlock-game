@@ -80,6 +80,11 @@ export default {
         'slide-down': 'slideDown 0.45s cubic-bezier(0.16, 1, 0.3, 1)',
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'pulse-glow': 'pulseGlow 2.4s ease-in-out infinite',
+        // Referenced by the game-over replay icons and the Medium's ghost.
+        // Both were in the markup long before they were ever defined here, so
+        // five usages were silently doing nothing.
+        'spin-slow': 'spin 6s linear infinite',
+        'bounce-slow': 'bounce 2.4s ease-in-out infinite',
         'float': 'float 6s ease-in-out infinite',
         'shimmer': 'shimmer 2.2s ease-in-out infinite',
         'breathe': 'breathe 4s ease-in-out infinite',

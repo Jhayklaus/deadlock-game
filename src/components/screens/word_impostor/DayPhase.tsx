@@ -71,7 +71,7 @@ export default function DayPhase() {
         <Card variant="glass" className="text-center p-8 flex flex-col items-center justify-center border-violet-900/30">
           <Skull size={64} className="text-violet-500 mb-4 animate-pulse" />
           <h2 className="text-4xl font-bold text-violet-400 mb-4 font-playfair">Eliminated</h2>
-          <p className="text-slate-400 mb-6">You can watch, but you cannot speak to the living.</p>
+          <p className="text-ink-muted mb-6">You can watch, but you cannot speak to the living.</p>
           {myDeathReason && (
             <div className="bg-violet-950/30 border border-violet-800/30 p-4 rounded-xl mb-6 w-full">
               <p className="text-violet-300 font-semibold">{myDeathReason}</p>
@@ -151,7 +151,7 @@ export default function DayPhase() {
                 <Button onClick={handleSkip} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-4">
                   <SkipForward size={20} /><span>Skip</span>
                 </Button>
-                <Button onClick={handleVote} disabled={!selectedVote} variant="primary"
+                <Button onClick={handleVote} disabled={!selectedVote} variant="accent"
                   className="flex-1 flex items-center justify-center gap-2 py-4 bg-violet-600 hover:bg-violet-500 border-violet-500 shadow-violet-500/20">
                   <CheckCircle size={20} /><span>Accuse</span>
                 </Button>
@@ -162,7 +162,7 @@ export default function DayPhase() {
           {phase === 'voting' && hasVoted && (
             <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500 py-12">
               <div className="bg-violet-950/50 p-8 rounded-2xl border border-violet-800/40 text-center max-w-md w-full relative">
-                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 p-3 rounded-full border border-violet-800/40">
+                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-elevated p-3 rounded-full border border-violet-800/40">
                   <CheckCircle size={32} className="text-violet-400" />
                 </div>
                 <h3 className="text-xl font-bold text-violet-200 mb-2 mt-4 font-playfair">Accusation Filed</h3>

@@ -76,7 +76,7 @@ export default function LobbyRoom() {
                 )}>
                   <div className="flex items-center gap-4">
                     <div className={clsx("w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg border font-oswald uppercase",
-                      player.id === myId ? "bg-amber-500 text-slate-900 border-amber-400" : "bg-amber-950/40 text-amber-400 border-amber-800/30"
+                      player.id === myId ? "bg-amber-500 text-base border-amber-400" : "bg-amber-950/40 text-amber-400 border-amber-800/30"
                     )}>
                       {player.name.charAt(0).toUpperCase()}
                     </div>
@@ -102,7 +102,7 @@ export default function LobbyRoom() {
           <div className="hidden xl:block">
             <Card variant="glass" padding="none" className="overflow-hidden border-amber-900/25"><GameSettingsUI /></Card>
           </div>
-          <Modal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} title="Settings" className="bg-slate-950 border-slate-800">
+          <Modal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} title="Settings" className="bg-base border-edge/50">
             <GameSettingsUI />
           </Modal>
         </div>
@@ -125,9 +125,9 @@ export default function LobbyRoom() {
                   </Button>
                 </div>
                 <Button
-                  variant="primary"
+                  variant="accent"
                   size="lg"
-                  className="w-full flex items-center justify-center gap-3 bg-amber-500 hover:bg-amber-400 border-amber-500 text-slate-900 font-bold shadow-amber-500/20"
+                  className="w-full flex items-center justify-center gap-3 bg-amber-500 hover:bg-amber-400 border-amber-500 text-base font-bold shadow-amber-500/20"
                   disabled={!canStart}
                   onClick={startGame}
                 >

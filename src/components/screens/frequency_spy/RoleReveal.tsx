@@ -49,7 +49,7 @@ export default function RoleReveal() {
     <div className="w-full max-w-sm mx-auto animate-in fade-in zoom-in duration-700">
       <Card
         variant="glass"
-        className="relative overflow-hidden border-cyan-800/40 bg-gradient-to-br from-cyan-950/60 to-slate-950"
+        className="relative overflow-hidden border-cyan-800/40 bg-gradient-to-br from-cyan-950/60 to-base"
       >
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-700 via-cyan-400 to-cyan-700 opacity-70" />
         <div className="absolute inset-0 opacity-5 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-cyan-400 to-transparent pointer-events-none" />
@@ -61,7 +61,7 @@ export default function RoleReveal() {
 
           <div className="mb-6 relative">
             <div className="absolute inset-0 blur-2xl opacity-25 bg-cyan-400 rounded-full animate-pulse" />
-            <div className={`relative p-5 rounded-2xl border bg-slate-900/60 ${isSpy ? 'border-red-700/40' : 'border-cyan-700/40'}`}>
+            <div className={`relative p-5 rounded-2xl border bg-elevated/60 ${isSpy ? 'border-red-700/40' : 'border-cyan-700/40'}`}>
               {isSpy ? <Crosshair size={48} className="text-red-400" /> : <Radio size={48} className="text-cyan-300" />}
             </div>
           </div>

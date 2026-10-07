@@ -69,7 +69,7 @@ export default function NightPhase() {
         case 'doctor': return <HeartPulse size={24} className="text-green-500" />;
         case 'detective': return <Eye size={24} className="text-blue-500" />;
         case 'vigilante': return <Crosshair size={24} className="text-amber-500" />;
-        case 'bodyguard': return <Shield size={24} className="text-slate-400" />;
+        case 'bodyguard': return <Shield size={24} className="text-ink-muted" />;
         case 'medium': return <Ghost size={24} className="text-purple-500" />;
         case 'serial_killer': return <Skull size={24} className="text-red-600" />;
         case 'escort': return <Ban size={24} className="text-fuchsia-400" />;
@@ -80,7 +80,7 @@ export default function NightPhase() {
         case 'survivor': return <LifeBuoy size={24} className="text-lime-400" />;
         case 'executioner': return <Gavel size={24} className="text-stone-300" />;
         case 'witch': return <Wand2 size={24} className="text-violet-400" />;
-        default: return <Moon size={24} className="text-slate-500" />;
+        default: return <Moon size={24} className="text-ink-muted" />;
     }
   }
 
@@ -91,10 +91,10 @@ export default function NightPhase() {
   if (!isAlive) {
     return (
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-        <Card variant="glass" className="flex flex-col items-center justify-center text-center p-8 border-slate-800">
+        <Card variant="glass" className="flex flex-col items-center justify-center text-center p-8 border-edge/50">
           <Skull size={64} className="text-red-500 mb-4 animate-pulse" />
-          <h2 className="text-2xl md:text-3xl font-bold text-red-500 mb-4 font-creepster tracking-wider">You are Dead</h2>
-          <p className="text-slate-400 mb-6">The dead tell no tales... but they can whisper to each other.</p>
+          <h2 className="font-display text-3xl text-danger mb-3">You are Dead</h2>
+          <p className="text-ink-muted mb-6">The dead tell no tales... but they can whisper to each other.</p>
           {myDeathReason && (
              <div className="bg-red-950/50 border border-red-900/50 p-4 rounded-xl mb-6 w-full">
                 <p className="text-red-300 font-semibold">{myDeathReason}</p>
@@ -118,9 +118,9 @@ export default function NightPhase() {
   if (!ability && myRole !== 'medium') {
     return (
       <div className="w-full max-w-4xl mx-auto space-y-6 md:space-y-8">
-        <Card variant="glass" className="text-center p-8 md:p-12 border-slate-800">
+        <Card variant="glass" className="text-center p-8 md:p-12 border-edge/50">
             <div className="flex justify-center mb-6">
-                <Moon size={64} className="text-slate-600 animate-pulse" />
+                <Moon size={64} className="text-ink-muted/60 animate-pulse" />
             </div>
             <h2 className="text-2xl md:text-4xl font-heading font-bold text-ink mb-4">Night has fallen</h2>
             <p className="text-ink-muted text-lg">
@@ -145,10 +145,10 @@ export default function NightPhase() {
   if (myRole === 'medium') {
     return (
       <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-        <Card variant="glass" className="flex flex-col items-center justify-center text-center p-8 border-slate-800">
+        <Card variant="glass" className="flex flex-col items-center justify-center text-center p-8 border-edge/50">
             <Ghost size={64} className="text-purple-500 mb-4 animate-bounce-slow" />
-            <h2 className="text-3xl font-bold text-purple-400 mb-4 font-creepster tracking-wider">The Spirit World</h2>
-            <p className="text-slate-400 mb-6">You can hear the whispers of the dead.</p>
+            <h2 className="font-display text-2xl text-violet-300 mb-3">The Spirit World</h2>
+            <p className="text-ink-muted mb-6">You can hear the whispers of the dead.</p>
             <div className="w-full">
                 <LastWillEditor />
                 <div className="mt-6"></div>
@@ -169,15 +169,15 @@ export default function NightPhase() {
   return (
     <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-6">
       <div className="lg:col-span-7 space-y-6">
-        <Card variant="glass" className="flex flex-col relative border-slate-800">
-            <div className="flex items-center gap-4 mb-8 pb-6 border-b border-slate-800">
-                <div className="bg-slate-800 p-3 rounded-xl">
+        <Card variant="glass" className="flex flex-col relative border-edge/50">
+            <div className="flex items-center gap-4 mb-8 pb-6 border-b border-edge/50">
+                <div className="bg-surface p-3 rounded-xl">
                     {getRoleIcon()}
                 </div>
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-100">Night Phase</h2>
+                    <h2 className="text-2xl font-bold text-ink">Night Phase</h2>
                     <div className="flex items-center gap-2 mt-1">
-                        <span className="text-slate-400 text-sm">Role:</span>
+                        <span className="text-ink-muted text-sm">Role:</span>
                         <Badge 
                             variant={
                                 myRole === 'mafia' ? 'danger' : 

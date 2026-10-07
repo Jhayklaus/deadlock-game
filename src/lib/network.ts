@@ -7,8 +7,9 @@ import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from '.
 import { soundManager } from './sound';
 import { getMode } from '../modes/registry';
 import { resolveNight, emptyNightActions, ABILITY_CHARGES } from './nightResolution';
-import { isAdjacent, SPAWN_ROOM, getRoom } from '../data/deadlockMap';
-import { KILL_COOLDOWN_SECONDS } from '../modes/deadlock';
+import { isAdjacent, isVentConnected, SPAWN_ROOM, getRoom } from '../data/deadlockMap';
+import type { ActiveSabotage, SabotageKind } from './types';
+import { KILL_COOLDOWN_SECONDS, SABOTAGE_COOLDOWN_SECONDS, SABOTAGE_DURATIONS, SABOTAGE_FIX_ROOM } from '../modes/deadlock';
 import type { NightActions } from './nightResolution';
 // Side-effect import: registers all game modes into the registry
 import '../modes/index';
@@ -423,10 +424,37 @@ class NetworkManager {
       this.hostPrivateState = next;
   }
 
+  /**
+   * Humanised label for a mode role, shown on the elimination reveal.
+   *
+   * Side modes carry no classic `Role`, so without this the reveal had nothing
+   * to display and wrongly rendered its "nobody was eliminated" card.
+   */
+  private modeRoleLabel(playerId: string): string | null {
+      const roleId = this.modeRoles[playerId];
+      if (!roleId) return null;
+      const labels: Record<string, string> = {
+          impostor: 'The Impostor',
+          crewmate: 'Crewmate',
+          undercover: 'Undercover',
+          common: 'Civilian',
+          blank: 'Blank',
+          frequency_spy: 'The Spy',
+          frequency_civilian: 'Civilian',
+          station_impostor: 'Impostor',
+          station_crew: 'Crew',
+      };
+      return labels[roleId] ?? roleId.replace(/_/g, ' ');
+  }
+
   /** Shows the elimination reveal, then loops into the next round. */
   private enterEliminationReveal(eliminatedId: string | null, resultText: string) {
       const store = useGameStore.getState();
-      const eliminationResult = { eliminatedId, resultText };
+      const eliminationResult = {
+          eliminatedId,
+          resultText,
+          revealedRole: eliminatedId ? this.modeRoleLabel(eliminatedId) : null,
+      };
       const duration = 6000;
       const timerEnd = Date.now() + duration;
 
@@ -1482,14 +1510,16 @@ class NetworkManager {
           bodies: this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []),
           tasksCompleted: Number(this.hostPrivateState.tasksCompleted ?? 0),
           tasksTotal: Number(this.hostPrivateState.tasksTotal ?? 0),
+          sabotage: this.dlRead<ActiveSabotage | null>('sabotageJson', null),
+          lastSeen: this.dlRead<Record<string, string>>('lastSeenJson', {}),
       };
       this.broadcast({ type: 'DEADLOCK_STATE', senderId: store.myId, payload });
       store.setDeadlock(payload);
   }
 
   /** Public: the player clicked an adjacent room. */
-  sendDeadlockMove(roomId: string) {
-      this.sendDeadlockAction('DL_MOVE', { roomId });
+  sendDeadlockMove(roomId: string, vent = false) {
+      this.sendDeadlockAction('DL_MOVE', { roomId, vent });
   }
 
   /** Public: the impostor clicked kill on someone in their room. */
@@ -1497,8 +1527,9 @@ class NetworkManager {
       // Start the cooldown locally so the button is honest immediately. The
       // host enforces it regardless; this only keeps the UI from lying during
       // the round trip.
-      useGameStore.getState().setDeadlock({
-          killReadyAt: Date.now() + KILL_COOLDOWN_SECONDS * 1000,
+      const store = useGameStore.getState();
+      store.setDeadlock({
+          killReadyAt: Date.now() + (store.settings.deadlockKillCooldown ?? KILL_COOLDOWN_SECONDS) * 1000,
       });
       this.sendDeadlockAction('DL_KILL', { targetId });
   }
@@ -1506,6 +1537,21 @@ class NetworkManager {
   /** Public: a task minigame in the current room was completed. */
   sendDeadlockTask(roomId: string) {
       this.sendDeadlockAction('DL_TASK', { roomId });
+  }
+
+  /** Public: the impostor triggered a sabotage. */
+  sendDeadlockSabotage(kind: SabotageKind, roomId?: string) {
+      const store = useGameStore.getState();
+      const cooldown = store.settings.deadlockSabotageCooldown ?? SABOTAGE_COOLDOWN_SECONDS;
+      // Optimistic cooldown so the panel is honest during the round trip; the
+      // host enforces it regardless.
+      store.setDeadlock({ sabotageReadyAt: Date.now() + cooldown * 1000 });
+      this.sendDeadlockAction('DL_SABOTAGE', { kind, roomId: roomId ?? null });
+  }
+
+  /** Public: a crewmate is fixing the active sabotage. */
+  sendDeadlockFix() {
+      this.sendDeadlockAction('DL_FIX', {});
   }
 
   /** Public: report a body, or call an emergency meeting. */
@@ -1555,8 +1601,21 @@ class NetworkManager {
               if (store.phase !== 'roaming') return;
               const to = String(payload.roomId ?? '');
               const from = positions[senderId] ?? SPAWN_ROOM;
-              // Adjacency is enforced here, not in the UI.
-              if (!isAdjacent(from, to)) return;
+
+              // Impostors may also take the maintenance shafts. Checked here,
+              // not in the UI, so a crewmate cannot vent by forging a message.
+              const viaVent = Boolean(payload.vent);
+              const impostorsNow = (this.hostPrivateState.impostorIds as string[]) ?? [];
+              const canVent = viaVent && impostorsNow.includes(senderId) && isVentConnected(from, to);
+
+              if (!canVent && !isAdjacent(from, to)) return;
+
+              // Sealed doors hold until they time out.
+              const sealed = this.dlRead<ActiveSabotage | null>('sabotageJson', null);
+              if (sealed?.kind === 'doors' && sealed.roomId === from && sealed.endsAt > Date.now()) {
+                  this.sendPrivateSystemMessage(senderId, 'The doors are sealed. You are not getting out yet.');
+                  return;
+              }
 
               positions[senderId] = to;
               this.hostPrivateState = { ...this.hostPrivateState, positions };
@@ -1579,7 +1638,8 @@ class NetworkManager {
               const killReady = this.dlRead<Record<string, number>>('killReadyJson', {});
               if ((killReady[senderId] ?? 0) > Date.now()) return;
 
-              killReady[senderId] = Date.now() + KILL_COOLDOWN_SECONDS * 1000;
+              const killCooldown = store.settings.deadlockKillCooldown ?? KILL_COOLDOWN_SECONDS;
+              killReady[senderId] = Date.now() + killCooldown * 1000;
               this.dlWrite('killReadyJson', killReady);
 
               store.updatePlayer(targetId, { isAlive: false });
@@ -1590,7 +1650,7 @@ class NetworkManager {
               bodies.push({ playerId: targetId, roomId: positions[targetId] ?? SPAWN_ROOM });
               this.dlWrite('bodiesJson', bodies);
 
-              this.sendPrivateSystemMessage(senderId, `You killed ${target.name}. Cooldown ${KILL_COOLDOWN_SECONDS}s.`);
+              this.sendPrivateSystemMessage(senderId, `You killed ${target.name}. Cooldown ${killCooldown}s.`);
               this.broadcastDeadlockState();
               this.checkDeadlockWin();
               return;
@@ -1623,6 +1683,63 @@ class NetworkManager {
 
               this.broadcastDeadlockState();
               this.checkDeadlockWin();
+              return;
+          }
+
+          case 'DL_SABOTAGE': {
+              if (store.phase !== 'roaming') return;
+              const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+              if (!impostorIds.includes(senderId)) return;
+
+              // One sabotage at a time, and only off cooldown.
+              if (this.dlRead<ActiveSabotage | null>('sabotageJson', null)) return;
+              const ready = this.dlRead<Record<string, number>>('sabotageReadyJson', {});
+              if ((ready[senderId] ?? 0) > Date.now()) return;
+
+              const kind = String(payload.kind ?? '') as SabotageKind;
+              if (!['lights', 'doors', 'reactor'].includes(kind)) return;
+
+              // Doors seal the saboteur's own room, so it cannot be used to
+              // trap someone on the far side of the station.
+              const roomId = kind === 'doors' ? (positions[senderId] ?? SPAWN_ROOM) : null;
+
+              const cooldown = store.settings.deadlockSabotageCooldown ?? SABOTAGE_COOLDOWN_SECONDS;
+              ready[senderId] = Date.now() + cooldown * 1000;
+              this.dlWrite('sabotageReadyJson', ready);
+
+              const sabotage: ActiveSabotage = {
+                  kind,
+                  roomId,
+                  endsAt: Date.now() + SABOTAGE_DURATIONS[kind] * 1000,
+                  fixRoomId: SABOTAGE_FIX_ROOM[kind],
+              };
+              this.dlWrite('sabotageJson', sabotage);
+
+              const label = kind === 'lights' ? 'The lights went out.'
+                  : kind === 'doors' ? 'Doors are sealing somewhere on the station.'
+                  : 'REACTOR MELTDOWN. Someone get to the reactor.';
+              this.broadcastSystemMessage(label);
+              this.broadcastDeadlockState();
+              this.scheduleSabotageExpiry(sabotage);
+              return;
+          }
+
+          case 'DL_FIX': {
+              if (store.phase !== 'roaming') return;
+              const sabotage = this.dlRead<ActiveSabotage | null>('sabotageJson', null);
+              if (!sabotage?.fixRoomId) return;
+              // Impostors do not get to undo their own work.
+              const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+              if (impostorIds.includes(senderId)) return;
+              if (positions[senderId] !== sabotage.fixRoomId) return;
+
+              this.dlWrite('sabotageJson', null);
+              this.broadcastSystemMessage(
+                  sabotage.kind === 'reactor'
+                      ? `${store.players[senderId]?.name ?? 'Someone'} stabilised the reactor.`
+                      : `${store.players[senderId]?.name ?? 'Someone'} got the lights back on.`
+              );
+              this.broadcastDeadlockState();
               return;
           }
 
@@ -1660,8 +1777,15 @@ class NetworkManager {
           this.broadcastSystemMessage(`${callerName} called an emergency meeting.`);
       }
 
-      // Bodies are cleared once reported, and everyone regroups.
+      // Freeze where everyone was standing before regrouping — this is what
+      // the crew actually argues from, and it is gone the moment they move.
+      const lastSeen = { ...((this.hostPrivateState.positions as Record<string, string>) ?? {}) };
+      this.dlWrite('lastSeenJson', lastSeen);
+      useGameStore.getState().setDeadlock({ lastSeen });
+
+      // Bodies are cleared once reported, sabotages stop, and everyone regroups.
       this.dlWrite('bodiesJson', []);
+      this.dlWrite('sabotageJson', null);
       const positions: Record<string, string> = {};
       Object.values(store.players).forEach(p => { if (p.isAlive) positions[p.id] = SPAWN_ROOM; });
       this.hostPrivateState = { ...this.hostPrivateState, positions };
@@ -1678,6 +1802,41 @@ class NetworkManager {
       if (!result) return false;
       this.broadcastModeGameOver(result.winnerId, result.winnerLabel, result.description);
       return true;
+  }
+
+  /**
+   * Resolves a sabotage when its clock runs out.
+   *
+   * Lights and doors simply lapse. An unstabilised reactor loses the crew the
+   * game, which is the only sabotage with teeth — so the check re-reads state
+   * rather than trusting the closure, in case it was fixed meanwhile.
+   */
+  private scheduleSabotageExpiry(sabotage: ActiveSabotage) {
+      const delay = Math.max(0, sabotage.endsAt - Date.now());
+
+      setTimeout(() => {
+          const store = useGameStore.getState();
+          if (store.phase !== 'roaming') return;
+
+          const current = this.dlRead<ActiveSabotage | null>('sabotageJson', null);
+          // Fixed, replaced, or already cleared — nothing to do.
+          if (!current || current.endsAt !== sabotage.endsAt) return;
+
+          this.dlWrite('sabotageJson', null);
+
+          if (current.kind === 'reactor') {
+              this.hostPrivateState = { ...this.hostPrivateState, reactorBlown: true };
+              this.broadcastSystemMessage('The reactor went critical. Nobody made it in time.');
+              this.broadcastDeadlockState();
+              this.checkDeadlockWin();
+              return;
+          }
+
+          this.broadcastSystemMessage(
+              current.kind === 'lights' ? 'The lights flicker back on.' : 'The doors unseal.'
+          );
+          this.broadcastDeadlockState();
+      }, delay);
   }
 
   /** Bots wander, work and (if impostor) hunt while roaming. */
@@ -1715,6 +1874,26 @@ class NetworkManager {
                       this.handleDeadlockAction(bot.id, 'DL_KILL', { targetId: prey[0].id });
                       return;
                   }
+              }
+
+              // An impostor bot sabotages when it can; a crew bot standing at a
+              // fix point deals with it.
+              const live = this.dlRead<ActiveSabotage | null>('sabotageJson', null);
+              if (live?.fixRoomId && !impostorIds.includes(bot.id) && at === live.fixRoomId) {
+                  this.handleDeadlockAction(bot.id, 'DL_FIX', {});
+                  return;
+              }
+              if (impostorIds.includes(bot.id) && !live && Math.random() < 0.18) {
+                  const kinds: SabotageKind[] = ['lights', 'doors', 'reactor'];
+                  const kind = kinds[Math.floor(Math.random() * kinds.length)];
+                  this.handleDeadlockAction(bot.id, 'DL_SABOTAGE', { kind, roomId: null });
+                  return;
+              }
+              // A crew bot heads toward a sabotage it can fix.
+              if (live?.fixRoomId && !impostorIds.includes(bot.id)) {
+                  const here = getRoom(at);
+                  const step = here?.exits.find(e => e === live.fixRoomId);
+                  if (step) { this.handleDeadlockAction(bot.id, 'DL_MOVE', { roomId: step }); return; }
               }
 
               // Report a body they are standing over.
@@ -1956,7 +2135,12 @@ class NetworkManager {
   /** Shows the day's outcome, then night falls. */
   private enterClassicReveal(eliminatedId: string | null, resultText: string) {
       const store = useGameStore.getState();
-      const eliminationResult = { eliminatedId, resultText };
+      const role = eliminatedId ? (store.allRoles || {})[eliminatedId] : null;
+      const eliminationResult = {
+          eliminatedId,
+          resultText,
+          revealedRole: role ? role.replace(/_/g, ' ') : null,
+      };
       const duration = 8000;
       const timerEnd = Date.now() + duration;
 

@@ -193,7 +193,17 @@ export interface GameState {
   // Result of the night phase
   lastNightResult: string;
   // Result of the elimination phase
-  eliminationResult: { eliminatedId: PlayerId | null; resultText: string } | null;
+  eliminationResult: {
+    eliminatedId: PlayerId | null;
+    resultText: string;
+    /**
+     * What the eliminated player turned out to be, already humanised
+     * ("Impostor", "Undercover", "Crew"). Side modes have no classic Role, so
+     * without this the reveal screen had nothing to show and fell through to
+     * its "nobody was eliminated" card.
+     */
+    revealedRole?: string | null;
+  } | null;
   // Current vote counts (for voting phase UI)
   voteCounts: Record<PlayerId, number>;
   winner: ClassicWinner | null;
@@ -255,12 +265,41 @@ export interface DeadlockView {
   emergencyUsed: boolean;
   /** Who called the meeting, and why. */
   lastMeeting: { callerId: PlayerId; bodyId: PlayerId | null } | null;
+  /** The sabotage currently running, if any. */
+  sabotage: ActiveSabotage | null;
+  /** Where everyone was standing when the last meeting was called. */
+  lastSeen: Record<PlayerId, string>;
+  /** Epoch ms until this player may sabotage again. */
+  sabotageReadyAt: number;
+}
+
+/** The three things an impostor can break. */
+export type SabotageKind = 'lights' | 'doors' | 'reactor';
+
+export interface ActiveSabotage {
+  readonly kind: SabotageKind;
+  /** Doors only: the room that is sealed. */
+  readonly roomId: string | null;
+  /** Epoch ms when this resolves on its own. */
+  readonly endsAt: number;
+  /** Where the crew must go to fix it, when it needs fixing. */
+  readonly fixRoomId: string | null;
 }
 
 /** A juror's call during a trial. */
 export type Verdict = 'guilty' | 'innocent' | 'abstain';
 
 export interface GameSettings {
+  // ── Deadlock ───────────────────────────────────────────────────────────────
+  /** How many impostors are dealt. Bounded by the player count at deal time. */
+  deadlockImpostors?: number;
+  /** Tasks dealt to each crewmate. */
+  deadlockTasks?: number;
+  /** Seconds an impostor waits between kills. */
+  deadlockKillCooldown?: number;
+  /** Seconds an impostor waits between sabotages. */
+  deadlockSabotageCooldown?: number;
+
   /** Give players with no night action a small task to do. Classic Mafia only. */
   nightTasksEnabled?: boolean;
   /** Put the accused on trial before eliminating them. Classic Mafia only. */
@@ -505,6 +544,9 @@ export interface DeadlockStateMessage extends BaseMessage {
     bodies: Array<{ playerId: PlayerId; roomId: string }>;
     tasksCompleted: number;
     tasksTotal: number;
+    sabotage: ActiveSabotage | null;
+    /** Populated when a meeting starts, so players can argue from it. */
+    lastSeen?: Record<PlayerId, string>;
   };
 }
 

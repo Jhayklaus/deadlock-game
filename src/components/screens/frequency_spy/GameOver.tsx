@@ -26,7 +26,7 @@ function SpectrumReveal({ value, lowLabel, highLabel, label, color }: {
       </div>
       <div className="flex justify-center items-center gap-2 mt-2">
         <span className="font-bold font-share-tech text-sm" style={{ color }}>{label}:</span>
-        <span className="text-slate-300 font-share-tech font-bold">{value}</span>
+        <span className="text-ink font-share-tech font-bold">{value}</span>
       </div>
     </div>
   );

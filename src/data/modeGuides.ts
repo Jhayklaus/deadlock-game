@@ -354,10 +354,30 @@ const deadlock: ModeGuide = {
         'An Impostor can kill anyone standing in the same room, then has to wait out a cooldown before killing again. The body stays where it fell. The real danger is a third person walking in \u2014 or noticing that you and the victim were last seen together.',
     },
     {
+      icon: 'eye',
+      title: 'Sabotage',
+      body:
+        'Impostors do not run tasks. Instead they break the station: cut the lights so nobody can see past their own room, seal the doors of the room they are standing in, or trigger a reactor meltdown. The reactor is the dangerous one \u2014 if no crewmate reaches it in time, the crew lose outright, so it drags everyone away from whatever they were doing.',
+      example: {
+        label: 'What each one does',
+        lines: [
+          'Lights   \u2014  nobody sees other rooms. Fix in Engineering',
+          'Doors    \u2014  seals the saboteur\u2019s room. Lapses on its own',
+          'Reactor  \u2014  crew lose if nobody reaches it. Fix in the Reactor',
+        ],
+      },
+    },
+    {
+      icon: 'eye',
+      title: 'The shafts',
+      body:
+        'Impostors can also use the maintenance shafts, which join rooms that are nowhere near each other on foot. It is the fastest way across the station and the easiest way to be caught \u2014 arriving somewhere you could not possibly have walked from is exactly what the crew is watching for.',
+    },
+    {
       icon: 'vote',
       title: 'Calling everyone together',
       body:
-        'Find a body and you can report it. You can also call one emergency meeting per game from anywhere, for when something is obviously wrong. Either way everyone is pulled back to the bridge, the body is cleared, and you argue it out and vote \u2014 exactly like a round of Mafia. Then it is back to the station.',
+        'Find a body and you can report it. You can also call one emergency meeting per game from anywhere, for when something is obviously wrong. Either way everyone is pulled back to the bridge and you argue it out and vote \u2014 exactly like a round of Mafia. The meeting shows where every player was standing when it was called, which is the hard evidence in the room. Then it is back to the station.',
     },
     {
       icon: 'trophy',

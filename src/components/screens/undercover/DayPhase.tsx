@@ -20,7 +20,7 @@ function UndercoverSidebarCard() {
   const isBlank = myModeRoleId === 'blank';
 
   const roleLabel = isUndercover ? 'UNDERCOVER' : isBlank ? 'BLANK' : 'COMMON';
-  const roleColor = isUndercover ? 'text-amber-400' : isBlank ? 'text-slate-400' : 'text-emerald-400';
+  const roleColor = isUndercover ? 'text-amber-400' : isBlank ? 'text-ink-muted' : 'text-emerald-400';
 
   return (
     <div className="space-y-3">
@@ -29,7 +29,7 @@ function UndercoverSidebarCard() {
         <h3 className="text-sm font-bold text-amber-300 font-oswald uppercase tracking-wider">Mission Brief</h3>
       </div>
 
-      <div className={`rounded-xl p-3 border text-center ${isUndercover ? 'bg-amber-950/30 border-amber-800/40' : isBlank ? 'bg-slate-900/30 border-slate-700/40' : 'bg-slate-800/30 border-slate-700/30'}`}>
+      <div className={`rounded-xl p-3 border text-center ${isUndercover ? 'bg-amber-950/30 border-amber-800/40' : isBlank ? 'bg-elevated/30 border-edge/60/40' : 'bg-surface/30 border-edge/60/30'}`}>
         <p className="text-xs uppercase tracking-widest font-bold mb-2 font-oswald" style={{ color: isUndercover ? '#fbbf24' : isBlank ? '#94a3b8' : '#34d399' }}>
           Your Role
         </p>
@@ -38,7 +38,7 @@ function UndercoverSidebarCard() {
 
       <div className="bg-amber-950/20 rounded-xl p-3 border border-amber-800/30">
         <p className="text-xs text-amber-500/60 uppercase tracking-widest mb-1 font-oswald">Your Word</p>
-        <p className={`text-xl font-black font-oswald ${isBlank ? 'text-slate-500 italic' : 'text-amber-100'}`}>
+        <p className={`text-xl font-black font-oswald ${isBlank ? 'text-ink-muted italic' : 'text-amber-100'}`}>
           {isBlank ? 'NO WORD' : (myAssignedWord ?? '...')}
         </p>
       </div>
@@ -66,7 +66,7 @@ export default function DayPhase() {
         <Card variant="glass" className="text-center p-8 flex flex-col items-center justify-center border-amber-900/25">
           <Skull size={64} className="text-amber-600 mb-4 animate-pulse" />
           <h2 className="text-4xl font-bold text-amber-400 mb-4 font-oswald uppercase">Burned</h2>
-          <p className="text-slate-400 mb-6">Your cover is blown. Watch in silence.</p>
+          <p className="text-ink-muted mb-6">Your cover is blown. Watch in silence.</p>
           {myDeathReason && (
             <div className="bg-amber-950/20 border border-amber-800/30 p-4 rounded-xl mb-6 w-full">
               <p className="text-amber-300 font-semibold font-oswald">{myDeathReason}</p>
@@ -145,8 +145,8 @@ export default function DayPhase() {
                 <Button onClick={handleSkip} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-4">
                   <SkipForward size={20} /><span>Skip</span>
                 </Button>
-                <Button onClick={handleVote} disabled={!selectedVote} variant="primary"
-                  className="flex-1 flex items-center justify-center gap-2 py-4 bg-amber-500 hover:bg-amber-400 border-amber-500 text-slate-900 font-bold shadow-amber-500/20">
+                <Button onClick={handleVote} disabled={!selectedVote} variant="accent"
+                  className="flex-1 flex items-center justify-center gap-2 py-4 bg-amber-500 hover:bg-amber-400 border-amber-500 text-base font-bold shadow-amber-500/20">
                   <CheckCircle size={20} /><span className="font-oswald">EXPOSE</span>
                 </Button>
               </div>
@@ -156,7 +156,7 @@ export default function DayPhase() {
           {phase === 'voting' && hasVoted && (
             <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500 py-12">
               <div className="bg-amber-950/30 p-8 rounded-2xl border border-amber-800/30 text-center max-w-md w-full relative">
-                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 p-3 rounded-full border border-amber-800/30">
+                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-elevated p-3 rounded-full border border-amber-800/30">
                   <CheckCircle size={32} className="text-amber-400" />
                 </div>
                 <h3 className="text-xl font-bold text-amber-200 mb-2 mt-4 font-oswald uppercase">Reported</h3>

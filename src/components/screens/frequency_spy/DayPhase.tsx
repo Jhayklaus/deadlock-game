@@ -95,7 +95,7 @@ export default function DayPhase() {
         <Card variant="glass" className="text-center p-8 flex flex-col items-center justify-center border-cyan-900/30">
           <Skull size={64} className="text-cyan-600 mb-4 animate-pulse" />
           <h2 className="text-4xl font-bold text-cyan-400 mb-4 font-share-tech">DISCONNECTED</h2>
-          <p className="text-slate-400 mb-6 font-share-tech">// signal lost. spectator mode active.</p>
+          <p className="text-ink-muted mb-6 font-share-tech">// signal lost. spectator mode active.</p>
           {myDeathReason && (
             <div className="bg-cyan-950/20 border border-cyan-800/30 p-4 rounded-xl mb-6 w-full">
               <p className="text-cyan-300 font-semibold font-share-tech">{myDeathReason}</p>
@@ -176,7 +176,7 @@ export default function DayPhase() {
                 <Button onClick={handleSkip} variant="secondary" className="flex-1 flex items-center justify-center gap-2 py-4 font-share-tech">
                   <SkipForward size={20} /><span>PASS</span>
                 </Button>
-                <Button onClick={handleVote} disabled={!selectedVote} variant="primary"
+                <Button onClick={handleVote} disabled={!selectedVote} variant="accent"
                   className="flex-1 flex items-center justify-center gap-2 py-4 bg-cyan-500/20 hover:bg-cyan-400/30 border border-cyan-500/50 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)] font-share-tech">
                   <CheckCircle size={20} /><span>ISOLATE</span>
                 </Button>
@@ -187,7 +187,7 @@ export default function DayPhase() {
           {phase === 'voting' && hasVoted && (
             <div className="flex-1 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-500 py-12">
               <div className="bg-cyan-950/30 p-8 rounded-2xl border border-cyan-800/30 text-center max-w-md w-full relative">
-                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 p-3 rounded-full border border-cyan-800/30">
+                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-elevated p-3 rounded-full border border-cyan-800/30">
                   <CheckCircle size={32} className="text-cyan-400" />
                 </div>
                 <h3 className="text-xl font-bold text-cyan-200 mb-2 mt-4 font-share-tech">// VOTE TRANSMITTED</h3>

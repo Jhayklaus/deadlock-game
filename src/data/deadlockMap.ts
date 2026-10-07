@@ -101,6 +101,31 @@ export function getRoom(id: string): MapRoom | undefined {
 /** Where everyone starts. */
 export const SPAWN_ROOM = 'corridor';
 
+/**
+ * Maintenance shafts, usable only by impostors.
+ *
+ * Deliberately connect rooms that are far apart on foot, so an impostor can
+ * be somewhere they could not plausibly have walked to — which is exactly the
+ * alibi problem the crew has to notice.
+ */
+export const VENTS: ReadonlyArray<readonly [string, string]> = [
+  ['engineering', 'reactor'],
+  ['comms', 'storage'],
+  ['quarters', 'medbay'],
+  ['bridge', 'airlock'],
+];
+
+/** Rooms this one is vent-connected to. */
+export function getVentExits(roomId: string): string[] {
+  return VENTS.flatMap(([a, b]) =>
+    a === roomId ? [b] : b === roomId ? [a] : []
+  );
+}
+
+export function isVentConnected(from: string, to: string): boolean {
+  return getVentExits(from).includes(to);
+}
+
 /** Can you get from `from` to `to` in a single move? */
 export function isAdjacent(from: string, to: string): boolean {
   const room = BY_ID[from];

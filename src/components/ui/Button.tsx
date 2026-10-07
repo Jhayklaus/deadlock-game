@@ -30,7 +30,7 @@ export const Button = ({
     accent:
       'bg-accent text-base hover:brightness-110 shadow-accent-sm hover:shadow-accent',
     primary:
-      'bg-primary text-slate-950 hover:brightness-110 shadow-[0_2px_12px_-2px_rgba(245,158,11,0.4)] hover:shadow-[0_6px_24px_-4px_rgba(245,158,11,0.5)]',
+      'bg-primary text-base hover:brightness-110 shadow-[0_2px_12px_-2px_rgba(245,158,11,0.4)] hover:shadow-[0_6px_24px_-4px_rgba(245,158,11,0.5)]',
     secondary:
       'bg-surface text-ink border border-edge hover:bg-surface/70 hover:border-edge/70',
     danger:

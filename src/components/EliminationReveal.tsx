@@ -1,91 +1,116 @@
 import { useEffect, useState } from 'react';
+import { clsx } from 'clsx';
 import { useGameStore } from '../lib/store';
 import { RoleIcon, roleThemes } from './RoleCard';
-import { clsx } from 'clsx';
-import { UserX } from 'lucide-react';
+import { UserX, Skull } from 'lucide-react';
 import { Role } from '../lib/types';
 
+/**
+ * Shown after a vote resolves.
+ *
+ * Deliberately does NOT require a classic `Role`: side modes never populate
+ * `allRoles`, so keying the elimination case on one made every side mode
+ * announce "No One Eliminated" for a player it had just voted out. The host
+ * now sends a humanised `revealedRole` with the result, and the classic role
+ * art is a bonus when it happens to be available.
+ */
 export default function EliminationReveal() {
   const { eliminationResult, players, allRoles } = useGameStore(state => ({
     eliminationResult: state.eliminationResult,
     players: state.players,
-    allRoles: state.allRoles
+    allRoles: state.allRoles,
   }));
 
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    // Trigger animation on mount
-    const timer = setTimeout(() => setVisible(true), 100);
+    const timer = setTimeout(() => setVisible(true), 80);
     return () => clearTimeout(timer);
   }, []);
 
   if (!eliminationResult) return null;
 
-  const { eliminatedId, resultText } = eliminationResult;
+  const { eliminatedId, resultText, revealedRole } = eliminationResult;
   const player = eliminatedId ? players[eliminatedId] : null;
-  // If player is eliminated, their role is revealed in allRoles (handled by network.ts)
-  // or we can fallback to 'civilian' if not found (should be found though)
-  const role: Role | undefined = eliminatedId ? (allRoles?.[eliminatedId] || player?.role) : undefined;
-  const theme = role ? roleThemes[role] : roleThemes.civilian;
+
+  // Classic art, when this mode has classic roles at all.
+  const classicRole: Role | undefined = eliminatedId
+    ? (allRoles?.[eliminatedId] || player?.role)
+    : undefined;
+  const theme = classicRole ? roleThemes[classicRole] : null;
+
+  // Whatever we can say they were — the classic role, or the mode's label.
+  const roleLabel = classicRole ? classicRole.replace(/_/g, ' ') : revealedRole;
+
+  const eliminated = Boolean(eliminatedId && player);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md">
-      <div className={clsx(
-        "max-w-3xl w-full mx-4 transition-all duration-1000 transform",
-        visible ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-90 translate-y-10"
-      )}>
-        {eliminatedId && player && role ? (
-          // Elimination Case
-          <div className={clsx(
-            "relative overflow-hidden rounded-2xl border-2 shadow-[0_0_100px_rgba(0,0,0,0.5)]",
-            theme.gradient.replace('from-', 'bg-gradient-to-br from-').replace('border-', 'border-'),
-            theme.shadow
-          )}>
-            {/* Background Texture */}
-            <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] mix-blend-overlay"></div>
-            
-            <div className="relative z-10 p-12 flex flex-col items-center text-center">
-              <div className="mb-8 animate-bounce-slow">
-                <RoleIcon role={role} />
-              </div>
-              
-              <h2 className="text-3xl md:text-5xl font-bold text-white mb-2 font-creepster tracking-wider drop-shadow-lg">
-                {player.name}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+      <div
+        className={clsx(
+          'w-full max-w-lg transition-all duration-700 ease-out-expo',
+          visible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-4'
+        )}
+      >
+        {eliminated ? (
+          <div className="relative overflow-hidden rounded-3xl border border-edge/70 bg-elevated edge-light shadow-2xl">
+            {/* Accent wash behind the reveal. */}
+            <div className="absolute inset-0 bg-ambient pointer-events-none" />
+
+            <div className="relative z-10 px-8 py-12 flex flex-col items-center text-center">
+              {classicRole ? (
+                <div className="mb-7 scale-75 origin-center">
+                  <RoleIcon role={classicRole} />
+                </div>
+              ) : (
+                <div className="mb-7 w-20 h-20 rounded-2xl grid place-items-center bg-danger/10 border border-danger/30">
+                  <Skull size={34} className="text-danger" strokeWidth={1.3} />
+                </div>
+              )}
+
+              <h2 className="font-display text-3xl md:text-4xl text-ink mb-1">
+                {player!.name}
               </h2>
-              
-              <div className="w-24 h-1 bg-white/30 rounded-full mb-6"></div>
-              
-              <h3 className="text-xl md:text-2xl text-slate-300 font-light mb-8">
-                was <span className="font-bold text-red-500">ELIMINATED</span>
-              </h3>
-              
-              <div className={clsx(
-                "px-6 py-2 rounded-full border bg-black/40 backdrop-blur-sm",
-                `border-${theme.color.split('-')[1]}-500/50`
-              )}>
-                <span className={clsx("text-lg md:text-xl font-bold uppercase tracking-widest", theme.color)}>
-                  {role.replace('_', ' ')}
-                </span>
-              </div>
+
+              <p className="text-sm uppercase tracking-[0.3em] text-danger font-semibold mb-7">
+                was voted out
+              </p>
+
+              {roleLabel && (
+                <div
+                  className={clsx(
+                    'px-5 py-2 rounded-full border bg-base/50 backdrop-blur-sm',
+                    theme ? 'border-edge/70' : 'border-accent/35'
+                  )}
+                >
+                  <span
+                    className={clsx(
+                      'text-base font-semibold uppercase tracking-[0.18em]',
+                      theme ? theme.color : 'text-accent'
+                    )}
+                  >
+                    {roleLabel}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         ) : (
-          // Skip/Tie Case
-          <div className="relative overflow-hidden rounded-2xl border-2 border-slate-700 bg-gradient-to-br from-slate-900 to-slate-950 shadow-2xl p-12 text-center">
-             <div className="flex justify-center mb-8">
-                <div className="bg-slate-800/50 p-6 rounded-full border border-slate-700 shadow-[0_0_30px_rgba(100,116,139,0.2)]">
-                  <UserX size={64} className="text-slate-400" />
-                </div>
-             </div>
-             
-             <h2 className="text-3xl md:text-5xl font-bold text-slate-200 mb-6 font-creepster tracking-wide">
-               No One Eliminated
-             </h2>
-             
-             <p className="text-lg text-slate-400 max-w-lg mx-auto leading-relaxed">
-               {resultText}
-             </p>
+          <div className="relative overflow-hidden rounded-3xl border border-edge/70 bg-elevated edge-light shadow-2xl px-8 py-12 text-center">
+            <div className="absolute inset-0 bg-ambient pointer-events-none" />
+            <div className="relative z-10">
+              <div className="w-20 h-20 mx-auto mb-7 rounded-2xl grid place-items-center bg-surface border border-edge/60">
+                <UserX size={34} className="text-ink-muted" strokeWidth={1.3} />
+              </div>
+
+              <h2 className="font-display text-3xl md:text-4xl text-ink mb-4">
+                No one eliminated
+              </h2>
+
+              <p className="text-sm text-ink-muted max-w-sm mx-auto leading-relaxed">
+                {resultText}
+              </p>
+            </div>
           </div>
         )}
       </div>

@@ -5,6 +5,7 @@ import Timer from './Timer';
 import CheatSheet from './CheatSheet';
 import { HowToPlayButton } from './ModeGuide';
 import { VoiceRoomBar } from './VoiceRoom';
+import VoiceControl from './VoiceControl';
 import { LogOut, AlertTriangle, X, Crown } from 'lucide-react';
 import type { GameModeId } from '../lib/types';
 
@@ -75,7 +76,11 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           )}
 
-          {/* Quick re-join for the voice room, once the host has set one. */}
+          {/* In-app voice, when the server has it configured. Renders
+              nothing otherwise. */}
+          <VoiceControl />
+
+          {/* Quick re-join for an external voice room, if the host set one. */}
           <VoiceRoomBar compact />
 
           {/* Walkthrough for the active mode — also shows itself the first

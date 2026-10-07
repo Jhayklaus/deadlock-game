@@ -82,14 +82,49 @@ Follow these steps to set up the project locally.
    cd ..
    ```
 
-7. **Environment Configuration**
-   Create a `.env` file in the `server` directory and add your API keys:
+4. **Environment Configuration**
+   Create a `.env` file in the `server` directory. **Every key here is
+   optional** — the game runs without any of them.
+
    ```env
    PORT=3001
-   GEMINI_API_KEY=your_gemini_key_here
-   # OR
+
+   # Optional: smart AI bots. Without it, bots use built-in behaviour.
    DEEP_SEEK_API_KEY=your_deepseek_key_here
+
+   # Optional: in-app voice chat. Without these, voice is simply not offered.
+   LIVEKIT_URL=wss://your-project.livekit.cloud
+   LIVEKIT_API_KEY=your_livekit_key
+   LIVEKIT_API_SECRET=your_livekit_secret
    ```
+
+   Check what the server has enabled at any time:
+   ```bash
+   curl http://localhost:3001/api/health
+   # {"ok":true,"ai":"ready","voice":"ready"}
+   ```
+
+### 🎙️ In-App Voice (optional)
+
+With LiveKit credentials configured, the game routes voice itself rather than
+sending players to an external call. Because the game controls the audio, the
+phase rules are **enforced** rather than agreed:
+
+| Phase | Who can speak |
+|---|---|
+| Day / voting / verdict | Every living player, in the Town channel |
+| Night | Mafia only, in their own channel — nobody else has a mic |
+| Trial defense | The accused alone. Everyone else listens |
+| Any phase, if dead | The Dead channel, never audible to the living |
+
+Each channel is a separate LiveKit room, and tokens are minted from the host's
+authoritative game state — so a client cannot talk its way into the Mafia's
+night channel. Players always join muted.
+
+Get free credentials at [livekit.io](https://livekit.io), or self-host with
+their Docker image to avoid the free tier's limits. If you would rather not run
+voice at all, the host can paste a Meet/Zoom/Discord link in the lobby instead
+and everyone gets a Join button.
 
 ### Running the Project
 

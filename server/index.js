@@ -4,6 +4,8 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import OpenAI from 'openai';
+import { AccessToken } from 'livekit-server-sdk';
+import { resolveVoiceGrant, voiceRoomName } from './voicePermissions.js';
 
 const app = express();
 app.use(express.json());
@@ -124,8 +126,85 @@ if (process.env.DEEP_SEEK_API_KEY) {
   console.warn('[ai] ' + aiUnavailableReason);
 }
 
+// ── In-app voice ─────────────────────────────────────────────────────────────
+//
+// Optional. Without LiveKit credentials the endpoints report the feature as
+// unavailable and the client simply does not offer voice — the game is
+// unaffected.
+const LIVEKIT_URL = process.env.LIVEKIT_URL || '';
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
+const voiceConfigured = Boolean(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
+
+if (!voiceConfigured) {
+  console.warn('[voice] LiveKit not configured — in-app voice is disabled.');
+}
+
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, ai: openai ? 'ready' : 'unavailable' });
+  res.json({
+    ok: true,
+    ai: openai ? 'ready' : 'unavailable',
+    voice: voiceConfigured ? 'ready' : 'unavailable',
+  });
+});
+
+app.get('/api/voice-config', (_req, res) => {
+  res.json({ enabled: voiceConfigured, url: voiceConfigured ? LIVEKIT_URL : null });
+});
+
+/**
+ * Mints a LiveKit token for one player.
+ *
+ * Permissions come from the host's own state snapshot, not from anything the
+ * caller claims, so a client cannot talk itself into the Mafia's night channel.
+ */
+app.post('/api/voice-token', async (req, res) => {
+  if (!voiceConfigured) {
+    return res.status(503).json({ error: 'Voice is not configured on this server.' });
+  }
+
+  const { roomId, userId } = req.body || {};
+  if (!roomId || !userId) {
+    return res.status(400).json({ error: 'roomId and userId are required' });
+  }
+
+  const snapshot = roomState.get(roomId);
+  if (!snapshot) {
+    // No snapshot means no way to verify who this is; refuse rather than guess.
+    return res.status(409).json({ error: 'Game state not available yet. Try again shortly.' });
+  }
+
+  const grant = resolveVoiceGrant(snapshot, userId);
+  if (!grant.channel) {
+    return res.json({ channel: null, canPublish: false, reason: grant.reason, token: null });
+  }
+
+  try {
+    const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+      identity: userId,
+      name: snapshot.players?.[userId]?.name || userId,
+      // Short-lived: permissions change with the phase, so clients re-ask.
+      ttl: '10m',
+    });
+    token.addGrant({
+      room: voiceRoomName(roomId, grant.channel),
+      roomJoin: true,
+      canPublish: grant.canPublish,
+      canSubscribe: true,
+      canPublishData: false,
+    });
+
+    res.json({
+      token: await token.toJwt(),
+      url: LIVEKIT_URL,
+      channel: grant.channel,
+      canPublish: grant.canPublish,
+      reason: grant.reason,
+    });
+  } catch (error) {
+    console.error('[voice] token error:', error.message);
+    res.status(500).json({ error: 'Failed to mint a voice token.' });
+  }
 });
 
 app.post('/api/bot-action', async (req, res) => {

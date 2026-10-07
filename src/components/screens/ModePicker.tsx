@@ -108,7 +108,7 @@ export default function ModePicker() {
     <div className="w-full max-w-5xl mx-auto px-4 animate-in fade-in duration-500">
       <div className="text-center mb-10 md:mb-14">
         <p className="text-ink-muted text-[11px] uppercase tracking-[0.35em] mb-4">
-          Social deduction, four ways
+          Social deduction, five ways
         </p>
         <h1 className="font-heading text-display-sm md:text-display-lg font-bold text-ink mb-4">
           Choose your game

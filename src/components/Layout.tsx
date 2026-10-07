@@ -85,15 +85,19 @@ export default function Layout({ children }: LayoutProps) {
           <VoiceRoomBar compact />
 
           {/* Walkthrough for the active mode — also shows itself the first
-              time a player reaches a lobby for a mode they have not seen. */}
-          <HowToPlayButton
-            modeId={gameMode}
-            autoOpenInLobby={uiScreen === 'in_lobby' && phase === 'lobby'}
-          />
+              time a player reaches a lobby for a mode they have not seen.
+              Hidden on the picker, where no mode has been chosen yet and each
+              card offers its own walkthrough. */}
+          {uiScreen !== 'mode_picker' && (
+            <HowToPlayButton
+              modeId={gameMode}
+              autoOpenInLobby={uiScreen === 'in_lobby' && phase === 'lobby'}
+            />
+          )}
 
           {/* The role cheat sheet lists Mafia roles, so it only belongs in
               classic. It was previously shown in every mode. */}
-          {gameMode === 'classic_mafia' && <CheatSheet />}
+          {uiScreen !== 'mode_picker' && gameMode === 'classic_mafia' && <CheatSheet />}
 
           {showExitButton && (
             <button

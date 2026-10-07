@@ -2,6 +2,19 @@
 
 **MAFIEUX** (FKA Trust-No-One) is a browser-based, real-time social deduction game inspired by Mafia and Werewolf. Players are randomly assigned roles and must work together (or deceive one another) to win. The game features a host-authoritative architecture with real-time communication powered by Socket.IO.
 
+## 🎲 Game Modes
+
+| Mode | Players | What it is |
+|---|---|---|
+| **Mafieux** — Classic Mafia | 7–20 | The original. Secret roles, night kills, trials and lynchings. |
+| **Word Impostor** | 5–15 | Crewmates share a secret word. The impostor knows only the category. |
+| **Undercover** | 6–12 | Two near-identical words, and one player with no word at all. |
+| **Frequency Spy** | 5–12 | Everyone shares a secret number on a spectrum. One spy is far off. |
+| **Deadlock** — Station Crisis | 5–12 | Move around a station, run tasks, and watch your back. |
+
+Every mode has a built-in walkthrough that explains its rules, shown
+automatically the first time you play it.
+
 ## 🎮 Game Overview
 
 In **MAFIEUX**, players are divided into two main factions: the **Town** and the **Mafia**.
@@ -16,8 +29,11 @@ The game cycles through **Day** and **Night** phases:
 ## ✨ Key Features
 
 - **Real-time Multiplayer:** Seamless communication using Socket.IO.
-- **Role-Based Mechanics:** 10+ unique roles including Detective, Doctor, Bodyguard, Mayor, Medium, and more.
-- **Dynamic Game Phases:** Lobby, Role Assignment, Night Phase, Day Discussion, Voting, and Elimination Reveal.
+- **Role-Based Mechanics:** 18 roles — Detective, Doctor, Bodyguard, Vigilante, Mayor, Medium, Escort, Veteran, Lookout, Spy, Framer, Serial Killer, Jester, Survivor, Executioner, Witch and more.
+- **Trials:** The accused gets a defense window, then the town votes guilty, innocent or abstain. A tie acquits.
+- **Night Tasks:** Players with no night action get a short minigame instead of watching a timer. Meet the town's quota and discussion runs longer the next day.
+- **Dynamic Game Phases:** Lobby, Role Assignment, Night, Day Discussion, Voting, Trial, and Elimination Reveal.
+- **Host Migration:** If the host closes their tab, a surviving player takes over and the game continues.
 - **Chat Systems:**
   - **Global Chat:** For public discussion.
   - **Mafia Chat:** Private channel for Mafia members.
@@ -150,14 +166,18 @@ You need to run both the frontend and backend servers.
 2. **Join a Game:** Enter a Room ID to join an existing lobby.
 3. **Setup:** The host can configure game settings (role counts, phase durations) and add bots if needed.
 4. **Start:** Once everyone is ready, the host starts the game.
-5. **Night Phase:**
-   - **Mafia:** Vote to kill a target.
-   - **Doctor/Bodyguard:** Choose a player to save.
-   - **Detective:** Investigate a player's role.
-   - **Medium:** Listen to the dead.
+5. **Night Phase:** Special roles act — the Mafia pick a target, the Doctor
+   protects, the Detective investigates, the Escort blocks, the Veteran can go
+   on alert. Everyone else gets a quick task to pass the time.
 6. **Day Phase:** Discuss who the Mafia might be.
-7. **Voting:** Vote to eliminate a suspect. The player with the most votes is eliminated.
+7. **Voting:** The leading candidate goes on trial, defends themselves, and the
+   town returns a verdict. (Hosts can turn trials off for a faster game.)
 8. **Win:** The game ends when one faction meets their win condition.
+
+> **Night order matters.** Roleblocks land before the actions they cancel,
+> frames before the investigations they corrupt, and protection before the
+> attacks it absorbs — so an Escort blocking the Doctor lets the Mafia kill
+> through, and a Framer's mark reads as Mafia however innocent they are.
 
 ## 🤝 Contact
 

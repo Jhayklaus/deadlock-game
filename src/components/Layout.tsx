@@ -18,6 +18,7 @@ const MODE_TITLE: Record<GameModeId, { name: string; sub: string }> = {
   word_impostor: { name: 'IMPOSTOR', sub: 'Find the Fake' },
   undercover: { name: 'UNDERCOVER', sub: 'Blend In' },
   frequency_spy: { name: 'FREQUENCY', sub: 'Find the Outlier' },
+  deadlock: { name: 'DEADLOCK', sub: 'Nobody Is Coming' },
 };
 
 interface LayoutProps {

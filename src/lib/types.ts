@@ -53,7 +53,8 @@ export type GameModeId =
   | 'classic_mafia'
   | 'word_impostor'
   | 'undercover'
-  | 'frequency_spy';
+  | 'frequency_spy'
+  | 'deadlock';
 
 export type ModeRoleId =
   | Role
@@ -63,7 +64,9 @@ export type ModeRoleId =
   | 'undercover'         // undercover: has the undercover word
   | 'blank'              // undercover: has no word at all
   | 'frequency_civilian' // frequency_spy: has the target number
-  | 'frequency_spy';     // frequency_spy: has a divergent number
+  | 'frequency_spy'      // frequency_spy: has a divergent number
+  | 'station_crew'       // deadlock: runs tasks around the station
+  | 'station_impostor';  // deadlock: kills, and must not be caught
 
 /** Who took a classic-mafia game. */
 export type ClassicWinner =
@@ -174,6 +177,7 @@ export type GamePhase =
   | 'trial_verdict'    // guilty / innocent / abstain
   | 'elimination_reveal'
   | 'impostor_guess'   // v2: word_impostor — voted-out impostor guesses the word
+  | 'roaming'          // deadlock: free movement around the station
   | 'game_over';
 
 export interface GameState {
@@ -228,6 +232,29 @@ export interface GameState {
   // Night tasks
   taskProgress: { completed: number; required: number };
   myTasksDone: number;
+  // Deadlock (map mode)
+  deadlock: DeadlockView;
+}
+
+/** Everything a Deadlock client needs to draw the station. */
+export interface DeadlockView {
+  /** Where each living player is standing. */
+  positions: Record<PlayerId, string>;
+  /** Bodies not yet reported, by room. */
+  bodies: Array<{ playerId: PlayerId; roomId: string }>;
+  /** Rooms where this player still has a task to do. */
+  myTasks: string[];
+  /** Rooms where this player has finished their task. */
+  myTasksDone: string[];
+  /** Station-wide task progress. */
+  tasksCompleted: number;
+  tasksTotal: number;
+  /** Epoch ms until this player's kill becomes available again. */
+  killReadyAt: number;
+  /** Whether this player has spent their emergency meeting. */
+  emergencyUsed: boolean;
+  /** Who called the meeting, and why. */
+  lastMeeting: { callerId: PlayerId; bodyId: PlayerId | null } | null;
 }
 
 /** A juror's call during a trial. */
@@ -306,6 +333,7 @@ export type MessageType =
   | 'SETTINGS_UPDATE' // host → all: live lobby settings change
   | 'VERDICT'         // juror → host
   | 'VERDICT_UPDATE'  // host → all: running tally
+  | 'DEADLOCK_STATE'  // host → all: station snapshot
   | 'TASK_COMPLETE'   // player → host: finished a night task
   | 'TASK_PROGRESS'   // host → all: town-wide task progress
   | 'MODE_ASSIGN'   // v2: per-player mode payload (sent individually, never broadcast)
@@ -470,6 +498,16 @@ export interface VerdictUpdateMessage extends BaseMessage {
   };
 }
 
+export interface DeadlockStateMessage extends BaseMessage {
+  type: 'DEADLOCK_STATE';
+  payload: {
+    positions: Record<PlayerId, string>;
+    bodies: Array<{ playerId: PlayerId; roomId: string }>;
+    tasksCompleted: number;
+    tasksTotal: number;
+  };
+}
+
 export interface TaskCompleteMessage extends BaseMessage {
   type: 'TASK_COMPLETE';
   payload: { taskId: string };
@@ -502,6 +540,8 @@ export interface ModeAssignMessage extends BaseMessage {
     assignedCategory: string | null;
     assignedNumber: number | null;
     commonWord: string | null;
+    /** Deadlock: the rooms this player must visit. Sent per player. */
+    tasks?: string[];
   };
 }
 
@@ -544,6 +584,7 @@ export type NetworkMessage =
   | VerdictUpdateMessage
   | TaskCompleteMessage
   | TaskProgressMessage
+  | DeadlockStateMessage
   | ModeAssignMessage
   | ModeActionMessage
   | ModeResultMessage;

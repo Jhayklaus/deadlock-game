@@ -12,6 +12,7 @@ const MODE_META: Record<GameModeId, { label: string; accentClass: string; fontCl
   word_impostor: { label: 'Word Impostor', accentClass: 'text-violet-400', fontClass: 'font-playfair' },
   undercover: { label: 'Undercover', accentClass: 'text-amber-400', fontClass: 'font-oswald' },
   frequency_spy: { label: 'Frequency Spy', accentClass: 'text-cyan-400', fontClass: 'font-share-tech' },
+  deadlock: { label: 'Deadlock', accentClass: 'text-emerald-400', fontClass: 'font-share-tech' },
 };
 
 export default function PreJoinCard() {

@@ -313,11 +313,74 @@ const frequencySpy: ModeGuide = {
   ],
 };
 
+
+const deadlock: ModeGuide = {
+  modeId: 'deadlock',
+  name: 'Deadlock',
+  tagline: 'Nobody is coming',
+  length: '10\u201320 min',
+  steps: [
+    {
+      icon: 'users',
+      title: 'A station and a problem',
+      body:
+        'Everyone is aboard a dead station. Most of you are Crew, with repairs to run. One or two are Impostors, who are here to kill the rest of you quietly. Nobody knows who is who.',
+    },
+    {
+      icon: 'repeat',
+      title: 'Moving around',
+      body:
+        'Click any room connected to yours to walk there. You can see who else is in a room from the dots on the map, so where you go is public \u2014 and so is who you were alone with.',
+      example: {
+        label: 'Reading the map',
+        lines: [
+          'Dots      \u2014  players standing in that room',
+          'Ringed dot\u2014  that is you',
+          'Amber dot \u2014  one of your tasks is in there',
+          'Red cross \u2014  a body nobody has reported yet',
+        ],
+      },
+    },
+    {
+      icon: 'key',
+      title: 'Run your tasks',
+      body:
+        'Each of you is dealt three tasks in specific rooms. Go to the room, open the console, finish the job. Impostors get a task list too \u2014 theirs does nothing, but standing at a console is good cover, and doing nothing all game is what gets people caught.',
+    },
+    {
+      icon: 'skull',
+      title: 'Killing, and being seen',
+      body:
+        'An Impostor can kill anyone standing in the same room, then has to wait out a cooldown before killing again. The body stays where it fell. The real danger is a third person walking in \u2014 or noticing that you and the victim were last seen together.',
+    },
+    {
+      icon: 'vote',
+      title: 'Calling everyone together',
+      body:
+        'Find a body and you can report it. You can also call one emergency meeting per game from anywhere, for when something is obviously wrong. Either way everyone is pulled back to the bridge, the body is cleared, and you argue it out and vote \u2014 exactly like a round of Mafia. Then it is back to the station.',
+    },
+    {
+      icon: 'trophy',
+      title: 'How it ends',
+      tone: 'win',
+      body:
+        'The Crew win by voting out every Impostor \u2014 or by finishing every task on the station, without catching anyone at all. The Impostors win once they match the number of Crew still alive.',
+    },
+    {
+      icon: 'lightbulb',
+      title: 'Tips for your first game',
+      body:
+        'As Crew, do your tasks where people can see you \u2014 an alibi is worth more than speed, and the task bar is a win condition the Impostors cannot touch. Try not to be the last person alone with anybody. As an Impostor, kill where nobody is heading and leave before the body is found; the hardest question to answer in a meeting is simply "where were you?".',
+    },
+  ],
+};
+
 const GUIDES: Record<GameModeId, ModeGuide> = {
   classic_mafia: classicMafia,
   word_impostor: wordImpostor,
   undercover: undercover,
   frequency_spy: frequencySpy,
+  deadlock: deadlock,
 };
 
 export function getModeGuide(modeId: GameModeId): ModeGuide {

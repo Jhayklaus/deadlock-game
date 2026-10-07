@@ -7,6 +7,8 @@ import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from '.
 import { soundManager } from './sound';
 import { getMode } from '../modes/registry';
 import { resolveNight, emptyNightActions, ABILITY_CHARGES } from './nightResolution';
+import { isAdjacent, SPAWN_ROOM, getRoom } from '../data/deadlockMap';
+import { KILL_COOLDOWN_SECONDS } from '../modes/deadlock';
 import type { NightActions } from './nightResolution';
 // Side-effect import: registers all game modes into the registry
 import '../modes/index';
@@ -291,6 +293,27 @@ class NetworkManager {
           }
       } else {
           // ── Non-classic modes: mode-driven transitions ────────────────────
+          if (this.activeModeId === 'deadlock') {
+              switch (phase) {
+                  case 'role_assignment':
+                      this.startRoamingPhase();
+                      break;
+                  case 'day_discussion':
+                      this.startVotingPhase();
+                      break;
+                  case 'voting':
+                      this.resolveModeVotingPhase();
+                      break;
+                  case 'elimination_reveal':
+                      // Back to the station rather than into another meeting.
+                      this.startRoamingPhase();
+                      break;
+                  // 'roaming' has no deadline — it ends when someone calls a
+                  // meeting, so no timeout arrives for it.
+              }
+              return;
+          }
+
           switch (phase) {
               case 'role_assignment':
                   this.startModeDayPhase();
@@ -851,6 +874,9 @@ class NetworkManager {
                       assignedNumber: payload.assignedNumber as number | null,
                       commonWord: payload.commonWord as string | null,
                   });
+                  if (payload.tasks) {
+                      store.setDeadlock({ myTasks: payload.tasks as string[], myTasksDone: [] });
+                  }
               } else {
                   // Send MODE_ASSIGN individually — each player gets only their payload
                   this.sendMessage(player.id, {
@@ -863,6 +889,7 @@ class NetworkManager {
                           assignedCategory: payload.assignedCategory as string | null,
                           assignedNumber: payload.assignedNumber as number | null,
                           commonWord: payload.commonWord as string | null,
+                          tasks: (payload.tasks as string[] | undefined),
                       }
                   });
               }
@@ -1431,6 +1458,322 @@ class NetworkManager {
   }
 
   /** Public: called by the verdict UI. */
+  // ── Deadlock (station mode) ─────────────────────────────────────────────────
+
+  /** Reads a JSON blob out of hostPrivateState, which stores no nested data. */
+  private dlRead<T>(key: string, fallback: T): T {
+      try {
+          const raw = this.hostPrivateState[key];
+          return typeof raw === 'string' ? JSON.parse(raw) as T : fallback;
+      } catch {
+          return fallback;
+      }
+  }
+
+  private dlWrite(key: string, value: unknown) {
+      this.hostPrivateState = { ...this.hostPrivateState, [key]: JSON.stringify(value) };
+  }
+
+  /** Publishes the station's public state: who is where, and what is lying around. */
+  private broadcastDeadlockState() {
+      const store = useGameStore.getState();
+      const payload = {
+          positions: (this.hostPrivateState.positions as Record<string, string>) ?? {},
+          bodies: this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []),
+          tasksCompleted: Number(this.hostPrivateState.tasksCompleted ?? 0),
+          tasksTotal: Number(this.hostPrivateState.tasksTotal ?? 0),
+      };
+      this.broadcast({ type: 'DEADLOCK_STATE', senderId: store.myId, payload });
+      store.setDeadlock(payload);
+  }
+
+  /** Public: the player clicked an adjacent room. */
+  sendDeadlockMove(roomId: string) {
+      this.sendDeadlockAction('DL_MOVE', { roomId });
+  }
+
+  /** Public: the impostor clicked kill on someone in their room. */
+  sendDeadlockKill(targetId: string) {
+      // Start the cooldown locally so the button is honest immediately. The
+      // host enforces it regardless; this only keeps the UI from lying during
+      // the round trip.
+      useGameStore.getState().setDeadlock({
+          killReadyAt: Date.now() + KILL_COOLDOWN_SECONDS * 1000,
+      });
+      this.sendDeadlockAction('DL_KILL', { targetId });
+  }
+
+  /** Public: a task minigame in the current room was completed. */
+  sendDeadlockTask(roomId: string) {
+      this.sendDeadlockAction('DL_TASK', { roomId });
+  }
+
+  /** Public: report a body, or call an emergency meeting. */
+  sendDeadlockMeeting(bodyId: string | null) {
+      // Emergency meetings are one per player for the whole game; reflect that
+      // in the UI straight away. The host is still the authority.
+      if (bodyId === null) {
+          useGameStore.getState().setDeadlock({ emergencyUsed: true });
+      }
+      this.sendDeadlockAction('DL_MEETING', { bodyId });
+  }
+
+  private sendDeadlockAction(actionType: string, actionPayload: Record<string, string | number | boolean | null>) {
+      const store = useGameStore.getState();
+      if (store.myId === store.hostId) {
+          this.handleDeadlockAction(store.myId, actionType, actionPayload);
+      } else if (store.hostId) {
+          this.sendMessage(store.hostId, {
+              type: 'MODE_ACTION',
+              senderId: store.myId,
+              payload: { actionType, actionPayload }
+          });
+      }
+  }
+
+  /**
+   * Host-authoritative handling for every station action.
+   *
+   * Each case re-derives what the actor is allowed to do from the host's own
+   * state — adjacency, same-room targets, cooldowns — rather than trusting the
+   * message. A client cannot teleport, kill across the station, or complete a
+   * task it was never given.
+   */
+  private handleDeadlockAction(
+      senderId: string,
+      actionType: string,
+      payload: Record<string, string | number | boolean | null>
+  ) {
+      const store = useGameStore.getState();
+      if (this.activeModeId !== 'deadlock') return;
+      if (!store.players[senderId]?.isAlive) return;
+
+      const positions = { ...((this.hostPrivateState.positions as Record<string, string>) ?? {}) };
+
+      switch (actionType) {
+          case 'DL_MOVE': {
+              if (store.phase !== 'roaming') return;
+              const to = String(payload.roomId ?? '');
+              const from = positions[senderId] ?? SPAWN_ROOM;
+              // Adjacency is enforced here, not in the UI.
+              if (!isAdjacent(from, to)) return;
+
+              positions[senderId] = to;
+              this.hostPrivateState = { ...this.hostPrivateState, positions };
+              this.broadcastDeadlockState();
+              return;
+          }
+
+          case 'DL_KILL': {
+              if (store.phase !== 'roaming') return;
+              const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+              if (!impostorIds.includes(senderId)) return;
+
+              const targetId = String(payload.targetId ?? '');
+              const target = store.players[targetId];
+              if (!target?.isAlive) return;
+              // No killing your own side, and only in your own room.
+              if (impostorIds.includes(targetId)) return;
+              if (positions[targetId] !== positions[senderId]) return;
+
+              const killReady = this.dlRead<Record<string, number>>('killReadyJson', {});
+              if ((killReady[senderId] ?? 0) > Date.now()) return;
+
+              killReady[senderId] = Date.now() + KILL_COOLDOWN_SECONDS * 1000;
+              this.dlWrite('killReadyJson', killReady);
+
+              store.updatePlayer(targetId, { isAlive: false });
+              this.sendDeathInfo(targetId, 'Something found you alone.');
+              this.broadcastPlayerUpdate();
+
+              const bodies = this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []);
+              bodies.push({ playerId: targetId, roomId: positions[targetId] ?? SPAWN_ROOM });
+              this.dlWrite('bodiesJson', bodies);
+
+              this.sendPrivateSystemMessage(senderId, `You killed ${target.name}. Cooldown ${KILL_COOLDOWN_SECONDS}s.`);
+              this.broadcastDeadlockState();
+              this.checkDeadlockWin();
+              return;
+          }
+
+          case 'DL_TASK': {
+              if (store.phase !== 'roaming') return;
+              const roomId = String(payload.roomId ?? '');
+              if (positions[senderId] !== roomId) return;
+
+              const assignments = this.dlRead<Record<string, string[]>>('taskAssignmentsJson', {});
+              const done = this.dlRead<Record<string, string[]>>('tasksDoneJson', {});
+              const mine = assignments[senderId] ?? [];
+              const minesDone = done[senderId] ?? [];
+
+              // Must be one of your own tasks, and not already finished.
+              if (!mine.includes(roomId) || minesDone.includes(roomId)) return;
+
+              done[senderId] = [...minesDone, roomId];
+              this.dlWrite('tasksDoneJson', done);
+
+              // Only genuine crew work counts toward the crew's win.
+              const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+              if (!impostorIds.includes(senderId)) {
+                  this.hostPrivateState = {
+                      ...this.hostPrivateState,
+                      tasksCompleted: Number(this.hostPrivateState.tasksCompleted ?? 0) + 1,
+                  };
+              }
+
+              this.broadcastDeadlockState();
+              this.checkDeadlockWin();
+              return;
+          }
+
+          case 'DL_MEETING': {
+              if (store.phase !== 'roaming') return;
+              const bodyId = payload.bodyId ? String(payload.bodyId) : null;
+              const bodies = this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []);
+
+              if (bodyId) {
+                  // You must actually be standing over the body you report.
+                  const body = bodies.find(b => b.playerId === bodyId);
+                  if (!body || body.roomId !== positions[senderId]) return;
+              } else {
+                  // Emergency meetings are once per player, for the whole game.
+                  const used = this.dlRead<string[]>('emergenciesUsedJson', []);
+                  if (used.includes(senderId)) return;
+                  this.dlWrite('emergenciesUsedJson', [...used, senderId]);
+              }
+
+              this.startDeadlockMeeting(senderId, bodyId);
+              return;
+          }
+      }
+  }
+
+  /** Everyone is pulled back together; the shared discussion machinery takes over. */
+  private startDeadlockMeeting(callerId: string, bodyId: string | null) {
+      const store = useGameStore.getState();
+      const callerName = store.players[callerId]?.name ?? 'Someone';
+
+      if (bodyId) {
+          const victim = store.players[bodyId]?.name ?? 'a crewmate';
+          this.broadcastSystemMessage(`${callerName} found ${victim}'s body. Everyone to the bridge.`);
+      } else {
+          this.broadcastSystemMessage(`${callerName} called an emergency meeting.`);
+      }
+
+      // Bodies are cleared once reported, and everyone regroups.
+      this.dlWrite('bodiesJson', []);
+      const positions: Record<string, string> = {};
+      Object.values(store.players).forEach(p => { if (p.isAlive) positions[p.id] = SPAWN_ROOM; });
+      this.hostPrivateState = { ...this.hostPrivateState, positions };
+      this.broadcastDeadlockState();
+
+      this.stopDeadlockBots();
+      this.startModeDayPhase();
+  }
+
+  /** Ends the game if the station mode's win condition is met. */
+  private checkDeadlockWin(): boolean {
+      const store = useGameStore.getState();
+      const result = getMode('deadlock').checkWinCondition(store.players, this.hostPrivateState);
+      if (!result) return false;
+      this.broadcastModeGameOver(result.winnerId, result.winnerLabel, result.description);
+      return true;
+  }
+
+  /** Bots wander, work and (if impostor) hunt while roaming. */
+  private deadlockBotInterval: ReturnType<typeof setInterval> | null = null;
+
+  private startDeadlockBots() {
+      this.stopDeadlockBots();
+
+      this.deadlockBotInterval = setInterval(() => {
+          const store = useGameStore.getState();
+          if (store.phase !== 'roaming' || store.myId !== store.hostId) {
+              this.stopDeadlockBots();
+              return;
+          }
+
+          const positions = (this.hostPrivateState.positions as Record<string, string>) ?? {};
+          const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+          const bots = Object.values(store.players).filter(p => p.isBot && p.isAlive);
+
+          bots.forEach(bot => {
+              const at = positions[bot.id] ?? SPAWN_ROOM;
+
+              // An impostor bot takes a chance when it is alone with someone.
+              if (impostorIds.includes(bot.id)) {
+                  const prey = Object.values(store.players).filter(
+                      p => p.isAlive && p.id !== bot.id &&
+                           !impostorIds.includes(p.id) &&
+                           positions[p.id] === at
+                  );
+                  // Only when there are no witnesses beyond the victim.
+                  const witnesses = Object.values(store.players).filter(
+                      p => p.isAlive && p.id !== bot.id && positions[p.id] === at
+                  ).length;
+                  if (prey.length > 0 && witnesses === 1 && Math.random() < 0.5) {
+                      this.handleDeadlockAction(bot.id, 'DL_KILL', { targetId: prey[0].id });
+                      return;
+                  }
+              }
+
+              // Report a body they are standing over.
+              const bodies = this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []);
+              const bodyHere = bodies.find(b => b.roomId === at);
+              if (bodyHere && !impostorIds.includes(bot.id) && Math.random() < 0.6) {
+                  this.handleDeadlockAction(bot.id, 'DL_MEETING', { bodyId: bodyHere.playerId });
+                  return;
+              }
+
+              // Work a task if one is here.
+              const assignments = this.dlRead<Record<string, string[]>>('taskAssignmentsJson', {});
+              const done = this.dlRead<Record<string, string[]>>('tasksDoneJson', {});
+              if ((assignments[bot.id] ?? []).includes(at) && !(done[bot.id] ?? []).includes(at)) {
+                  if (Math.random() < 0.22) {
+                      this.handleDeadlockAction(bot.id, 'DL_TASK', { roomId: at });
+                      return;
+                  }
+              }
+
+              // Otherwise head for the nearest unfinished task, or wander.
+              const room = getRoom(at);
+              if (!room || Math.random() > 0.7) return;
+
+              const wanted = (assignments[bot.id] ?? []).filter(r => !(done[bot.id] ?? []).includes(r));
+              // Head for a task only sometimes, so bots spread out and are
+              // plausibly somewhere they have no business being.
+              const towardTask = Math.random() < 0.55 ? room.exits.find(e => wanted.includes(e)) : undefined;
+              const next = towardTask ?? room.exits[Math.floor(Math.random() * room.exits.length)];
+              this.handleDeadlockAction(bot.id, 'DL_MOVE', { roomId: next });
+          });
+      }, 2500);
+  }
+
+  private stopDeadlockBots() {
+      if (this.deadlockBotInterval) {
+          clearInterval(this.deadlockBotInterval);
+          this.deadlockBotInterval = null;
+      }
+  }
+
+  /** Starts (or restarts) free movement around the station. */
+  private startRoamingPhase() {
+      const store = useGameStore.getState();
+      if (this.checkDeadlockWin()) return;
+
+      // Roaming has no deadline of its own; it ends when someone calls a
+      // meeting, so the timer is cleared rather than set.
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'roaming', timerEnd: undefined }
+      });
+      store.setPhase('roaming');
+      store.setTimerEnd(null);
+      this.broadcastDeadlockState();
+      this.startDeadlockBots();
+  }
+
   /** Public: called by the night-task UI when a player finishes one. */
   sendTaskComplete(taskId: string) {
       const store = useGameStore.getState();
@@ -1972,6 +2315,10 @@ class NetworkManager {
       case 'TASK_PROGRESS':
           store.setTaskProgress(message.payload);
           break;
+
+      case 'DEADLOCK_STATE':
+          store.setDeadlock(message.payload);
+          break;
           
       case 'VOTE_UPDATE':
           store.setVoteCounts(message.payload.voteCounts);
@@ -2134,10 +2481,22 @@ class NetworkManager {
                 assignedNumber: p.assignedNumber,
                 commonWord: p.commonWord,
             });
+            // Deadlock: each player's route is sent only to them.
+            if (p.tasks) {
+                store.setDeadlock({ myTasks: p.tasks, myTasksDone: [] });
+            }
             break;
         }
 
         case 'MODE_ACTION':
+            if (store.myId === store.hostId && message.payload.actionType.startsWith('DL_')) {
+                this.handleDeadlockAction(
+                    message.senderId,
+                    message.payload.actionType,
+                    message.payload.actionPayload
+                );
+                break;
+            }
             if (store.myId === store.hostId) {
                 const { actionType, actionPayload } = message.payload;
                 if (actionType === 'IMPOSTOR_GUESS') {

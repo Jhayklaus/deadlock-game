@@ -5,7 +5,7 @@ import ModeGuide from '../ModeGuide';
 import { getMode } from '../../modes/registry';
 // Side-effect import: ensures the registry is populated before we read it.
 import '../../modes/index';
-import { Sword, BookOpen, Eye, Radio, ArrowRight, Users, HelpCircle } from 'lucide-react';
+import { Sword, BookOpen, Eye, Radio, Radar, ArrowRight, Users, HelpCircle } from 'lucide-react';
 
 interface ModeCard {
   id: GameModeId;
@@ -73,6 +73,19 @@ const MODES: ModeCard[] = [
     tint: 'bg-cyan-500/10',
     ring: 'group-hover:border-cyan-500/60',
     glow: 'group-hover:shadow-[0_12px_48px_-12px_rgba(34,211,238,0.45)]',
+    font: 'font-share-tech tracking-widest',
+  },
+  {
+    id: 'deadlock',
+    name: 'DEADLOCK',
+    tagline: 'Station Crisis',
+    description:
+      'Move around a dead station, run your tasks, and watch your back. Impostors kill quietly — find a body and call everyone together.',
+    icon: <Radar size={22} />,
+    accent: 'text-emerald-400',
+    tint: 'bg-emerald-500/10',
+    ring: 'group-hover:border-emerald-500/60',
+    glow: 'group-hover:shadow-[0_12px_48px_-12px_rgba(16,185,129,0.45)]',
     font: 'font-share-tech tracking-widest',
   },
 ];

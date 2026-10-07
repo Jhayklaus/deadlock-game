@@ -134,6 +134,21 @@
   }
 }
 
+[data-theme='deadlock'] {
+  --bg-base: 4 10 8;
+  --bg-elevated: 7 18 14;
+  --bg-surface: 12 28 22;
+  --accent: 16 185 129;
+  --accent-soft: 52 211 153;
+  --edge: 20 70 56;
+  --ink: 236 253 245;
+  --ink-muted: 82 122 106;
+
+  --font-display: 'Share Tech Mono', monospace;
+  --display-tracking: 0.12em;
+  --glow: 16 185 129;
+}
+
 @keyframes staggerRise {
   from {
     opacity: 0;

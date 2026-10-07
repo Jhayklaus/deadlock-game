@@ -3,13 +3,14 @@ import { useGameStore } from '../../lib/store';
 import { networkManager } from '../../lib/network';
 import type { GameModeId } from '../../lib/types';
 import { clsx } from 'clsx';
-import { Sword, BookOpen, Eye, Radio } from 'lucide-react';
+import { Sword, BookOpen, Eye, Radio, Radar } from 'lucide-react';
 
 const MODE_ICONS: Record<GameModeId, React.ReactNode> = {
   classic_mafia: <Sword size={20} />,
   word_impostor: <BookOpen size={20} />,
   undercover: <Eye size={20} />,
   frequency_spy: <Radio size={20} />,
+  deadlock: <Radar size={20} />,
 };
 
 const MODE_COLORS: Record<GameModeId, string> = {
@@ -17,6 +18,7 @@ const MODE_COLORS: Record<GameModeId, string> = {
   word_impostor: 'border-violet-500/40 hover:border-violet-500/70 data-[active=true]:border-violet-500 data-[active=true]:bg-violet-900/20',
   undercover: 'border-amber-500/40 hover:border-amber-500/70 data-[active=true]:border-amber-500 data-[active=true]:bg-amber-900/20',
   frequency_spy: 'border-cyan-500/40 hover:border-cyan-500/70 data-[active=true]:border-cyan-500 data-[active=true]:bg-cyan-900/20',
+  deadlock: 'border-emerald-500/40 hover:border-emerald-500/70 data-[active=true]:border-emerald-500 data-[active=true]:bg-emerald-900/20',
 };
 
 const MODE_ICON_COLORS: Record<GameModeId, string> = {
@@ -24,6 +26,7 @@ const MODE_ICON_COLORS: Record<GameModeId, string> = {
   word_impostor: 'text-violet-400',
   undercover: 'text-amber-400',
   frequency_spy: 'text-cyan-400',
+  deadlock: 'text-emerald-400',
 };
 
 interface ModeSelectorProps {

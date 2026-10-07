@@ -7,6 +7,8 @@ export interface ModeScreens {
   dayPhase: ComponentType;
   gameOver: ComponentType;
   impostorGuess?: ComponentType;
+  /** Deadlock: the station map, shown during the roaming phase. */
+  station?: ComponentType;
 }
 
 const screenRegistry: Record<GameModeId, ModeScreens> = {
@@ -34,6 +36,15 @@ const screenRegistry: Record<GameModeId, ModeScreens> = {
     roleReveal: lazy(() => import('./frequency_spy/RoleReveal')),
     dayPhase: lazy(() => import('./frequency_spy/DayPhase')),
     gameOver: lazy(() => import('./frequency_spy/GameOver')),
+  },
+  deadlock: {
+    lobby: lazy(() => import('./deadlock/LobbyRoom')),
+    roleReveal: lazy(() => import('./deadlock/RoleReveal')),
+    // Meetings share the voting machinery but are framed around the station,
+    // so they get their own screen rather than Word Impostor's.
+    dayPhase: lazy(() => import('./deadlock/Meeting')),
+    gameOver: lazy(() => import('./deadlock/GameOver')),
+    station: lazy(() => import('./deadlock/Station')),
   },
 };
 

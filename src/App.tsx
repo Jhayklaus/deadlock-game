@@ -71,6 +71,7 @@ function App() {
   const DayPhase = screens.dayPhase;
   const GameOver = screens.gameOver;
   const ImpostorGuess = screens.impostorGuess;
+  const Station = screens.station;
 
   return (
     <Layout>
@@ -81,6 +82,7 @@ function App() {
         {(phase === 'day_discussion' || phase === 'voting') && <DayPhase />}
         {(phase === 'trial_defense' || phase === 'trial_verdict') && <TrialPhase />}
         {phase === 'elimination_reveal' && <EliminationReveal />}
+        {phase === 'roaming' && Station && <Station />}
         {phase === 'impostor_guess' && ImpostorGuess && <ImpostorGuess />}
         {phase === 'game_over' && <GameOver />}
       </Suspense>

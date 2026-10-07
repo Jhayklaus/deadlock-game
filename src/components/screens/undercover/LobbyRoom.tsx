@@ -7,6 +7,7 @@ import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Badge } from '../../ui/Badge';
 import { Modal } from '../../ui/Modal';
+import { VoiceRoomBar } from '../../VoiceRoom';
 
 export default function LobbyRoom() {
   const {
@@ -47,6 +48,9 @@ export default function LobbyRoom() {
           </div>
         )}
       </Card>
+
+      {/* Shown to everyone once the host sets a voice room. */}
+      <VoiceRoomBar />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8 flex flex-col gap-6 order-2 lg:order-1">

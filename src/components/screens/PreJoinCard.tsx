@@ -12,6 +12,7 @@ const MODE_META: Record<GameModeId, { label: string; accentClass: string; fontCl
   word_impostor: { label: 'Word Impostor', accentClass: 'text-violet-400', fontClass: 'font-playfair' },
   undercover: { label: 'Undercover', accentClass: 'text-amber-400', fontClass: 'font-oswald' },
   frequency_spy: { label: 'Frequency Spy', accentClass: 'text-cyan-400', fontClass: 'font-share-tech' },
+  deadlock: { label: 'Deadlock', accentClass: 'text-emerald-400', fontClass: 'font-share-tech' },
 };
 
 export default function PreJoinCard() {
@@ -52,7 +53,7 @@ export default function PreJoinCard() {
       </button>
 
       <Card variant="glass" padding="lg" className="relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-current to-transparent opacity-50" style={{ color: 'var(--color-accent, #dc2626)' }} />
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-current to-transparent opacity-50" style={{ color: 'rgb(var(--accent))' }} />
 
         {/* Mode badge */}
         <div className="text-center mb-8">

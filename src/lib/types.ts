@@ -1,6 +1,49 @@
 export type PlayerId = string;
 
-export type Role = 'mafia' | 'detective' | 'doctor' | 'civilian' | 'vigilante' | 'mayor' | 'serial_killer' | 'jester' | 'bodyguard' | 'medium';
+export type Role =
+  // Town
+  | 'civilian'
+  | 'detective'
+  | 'doctor'
+  | 'bodyguard'
+  | 'vigilante'
+  | 'mayor'
+  | 'medium'
+  | 'escort'       // blocks a target's night action
+  | 'veteran'      // can go on alert and kill anyone who visits
+  | 'lookout'      // sees who visited their target
+  | 'spy'          // learns where the Mafia struck
+  // Mafia
+  | 'mafia'
+  | 'framer'       // makes a target read as suspicious to the Detective
+  // Neutral
+  | 'serial_killer'
+  | 'jester'
+  | 'survivor'     // wins by being alive at the end; has limited vests
+  | 'executioner'  // wins if their assigned target is voted out
+  | 'witch';       // redirects another player's night action
+
+/** Roles that win with the Town. */
+export const TOWN_ROLES: ReadonlyArray<Role> = [
+  'civilian', 'detective', 'doctor', 'bodyguard', 'vigilante',
+  'mayor', 'medium', 'escort', 'veteran', 'lookout', 'spy',
+];
+
+/** Roles that win with the Mafia. */
+export const MAFIA_ROLES: ReadonlyArray<Role> = ['mafia', 'framer'];
+
+/** Roles that win on their own terms. */
+export const NEUTRAL_ROLES: ReadonlyArray<Role> = [
+  'serial_killer', 'jester', 'survivor', 'executioner', 'witch',
+];
+
+export function isTownRole(role: Role | undefined): boolean {
+  return !!role && TOWN_ROLES.includes(role);
+}
+
+export function isMafiaRole(role: Role | undefined): boolean {
+  return !!role && MAFIA_ROLES.includes(role);
+}
 
 // ─── v2: Game Mode System ─────────────────────────────────────────────────────
 
@@ -10,7 +53,8 @@ export type GameModeId =
   | 'classic_mafia'
   | 'word_impostor'
   | 'undercover'
-  | 'frequency_spy';
+  | 'frequency_spy'
+  | 'deadlock';
 
 export type ModeRoleId =
   | Role
@@ -20,7 +64,19 @@ export type ModeRoleId =
   | 'undercover'         // undercover: has the undercover word
   | 'blank'              // undercover: has no word at all
   | 'frequency_civilian' // frequency_spy: has the target number
-  | 'frequency_spy';     // frequency_spy: has a divergent number
+  | 'frequency_spy'      // frequency_spy: has a divergent number
+  | 'station_crew'       // deadlock: runs tasks around the station
+  | 'station_impostor';  // deadlock: kills, and must not be caught
+
+/** Who took a classic-mafia game. */
+export type ClassicWinner =
+  | 'town'
+  | 'mafia'
+  | 'serial_killer'
+  | 'jester'
+  | 'survivor'
+  | 'executioner'
+  | 'witch';
 
 export interface WinResult {
   readonly winnerId: string;
@@ -117,8 +173,11 @@ export type GamePhase =
   | 'night'
   | 'day_discussion'
   | 'voting'
+  | 'trial_defense'    // the accused speaks before the verdict
+  | 'trial_verdict'    // guilty / innocent / abstain
   | 'elimination_reveal'
   | 'impostor_guess'   // v2: word_impostor — voted-out impostor guesses the word
+  | 'roaming'          // deadlock: free movement around the station
   | 'game_over';
 
 export interface GameState {
@@ -137,7 +196,7 @@ export interface GameState {
   eliminationResult: { eliminatedId: PlayerId | null; resultText: string } | null;
   // Current vote counts (for voting phase UI)
   voteCounts: Record<PlayerId, number>;
-  winner: 'town' | 'mafia' | 'serial_killer' | 'jester' | null;
+  winner: ClassicWinner | null;
   allRoles: Record<PlayerId, Role> | null;
   settings: GameSettings;
   messages: ChatMessage[];
@@ -162,9 +221,60 @@ export interface GameState {
   modeWinnerDescription: string | null;
   // v2 mode roles revealed at game over (for all players)
   allModeRoles: Record<PlayerId, string>;
+  // Current discussion round, 1-based (non-classic modes loop over rounds)
+  round: number;
+  // Neutral roles that met their own goal, revealed at game over
+  alsoWon: PlayerId[];
+  // Trial state (classic mafia)
+  accusedId: PlayerId | null;
+  verdictCounts: { guilty: number; innocent: number; cast: number; total: number };
+  myVerdict: Verdict | null;
+  // Night tasks
+  taskProgress: { completed: number; required: number };
+  myTasksDone: number;
+  // Deadlock (map mode)
+  deadlock: DeadlockView;
 }
 
+/** Everything a Deadlock client needs to draw the station. */
+export interface DeadlockView {
+  /** Where each living player is standing. */
+  positions: Record<PlayerId, string>;
+  /** Bodies not yet reported, by room. */
+  bodies: Array<{ playerId: PlayerId; roomId: string }>;
+  /** Rooms where this player still has a task to do. */
+  myTasks: string[];
+  /** Rooms where this player has finished their task. */
+  myTasksDone: string[];
+  /** Station-wide task progress. */
+  tasksCompleted: number;
+  tasksTotal: number;
+  /** Epoch ms until this player's kill becomes available again. */
+  killReadyAt: number;
+  /** Whether this player has spent their emergency meeting. */
+  emergencyUsed: boolean;
+  /** Who called the meeting, and why. */
+  lastMeeting: { callerId: PlayerId; bodyId: PlayerId | null } | null;
+}
+
+/** A juror's call during a trial. */
+export type Verdict = 'guilty' | 'innocent' | 'abstain';
+
 export interface GameSettings {
+  /** Give players with no night action a small task to do. Classic Mafia only. */
+  nightTasksEnabled?: boolean;
+  /** Put the accused on trial before eliminating them. Classic Mafia only. */
+  trialEnabled?: boolean;
+  /** Seconds the accused gets to defend themselves. */
+  defenseDuration?: number;
+  /** Seconds the jury gets to return a verdict. */
+  verdictDuration?: number;
+  /**
+   * External voice room (Meet / Zoom / Discord) the host pastes in the lobby.
+   * Null when none is set. Muting is on the honour system here — the game
+   * cannot control an external call.
+   */
+  voiceRoomUrl?: string | null;
   dayDuration: number; // seconds
   discussionDuration: number; // seconds
   votingDuration: number; // seconds
@@ -179,6 +289,14 @@ export interface GameSettings {
     jester: { count: number; chance: number };
     bodyguard: { count: number; chance: number };
     medium: { count: number; chance: number };
+    escort: { count: number; chance: number };
+    veteran: { count: number; chance: number };
+    lookout: { count: number; chance: number };
+    spy: { count: number; chance: number };
+    framer: { count: number; chance: number };
+    survivor: { count: number; chance: number };
+    executioner: { count: number; chance: number };
+    witch: { count: number; chance: number };
   };
 }
 
@@ -212,6 +330,12 @@ export type MessageType =
   | 'DEATH_INFO'
   | 'KICK_PLAYER'
   | 'TYPING'
+  | 'SETTINGS_UPDATE' // host → all: live lobby settings change
+  | 'VERDICT'         // juror → host
+  | 'VERDICT_UPDATE'  // host → all: running tally
+  | 'DEADLOCK_STATE'  // host → all: station snapshot
+  | 'TASK_COMPLETE'   // player → host: finished a night task
+  | 'TASK_PROGRESS'   // host → all: town-wide task progress
   | 'MODE_ASSIGN'   // v2: per-player mode payload (sent individually, never broadcast)
   | 'MODE_ACTION'   // v2: player → host generic action
   | 'MODE_RESULT';  // v2: host → all result broadcast
@@ -263,11 +387,25 @@ export interface RoleAssignMessage extends BaseMessage {
   };
 }
 
+export type NightActionType =
+  | 'KILL'        // mafia, vigilante, serial killer
+  | 'SAVE'        // doctor
+  | 'INVESTIGATE' // detective
+  | 'PROTECT'     // bodyguard
+  | 'ROLEBLOCK'   // escort
+  | 'FRAME'       // framer
+  | 'ALERT'       // veteran — targets themselves
+  | 'WATCH'       // lookout
+  | 'VEST'        // survivor — targets themselves
+  | 'CONTROL';    // witch — needs secondTargetId
+
 export interface NightActionMessage extends BaseMessage {
   type: 'NIGHT_ACTION';
   payload: {
-    action: 'KILL' | 'SAVE' | 'INVESTIGATE' | 'PROTECT';
+    action: NightActionType;
     targetId: PlayerId;
+    /** Witch only: where the controlled player's action is redirected. */
+    secondTargetId?: PlayerId;
   };
 }
 
@@ -297,8 +435,10 @@ export interface VoteUpdateMessage extends BaseMessage {
 export interface GameOverMessage extends BaseMessage {
   type: 'GAME_OVER';
   payload: {
-    winner: 'town' | 'mafia' | 'serial_killer' | 'jester';
+    winner: ClassicWinner;
     roles: Record<PlayerId, Role>;
+    /** Neutral roles that also achieved their own goal this game. */
+    alsoWon?: PlayerId[];
   };
 }
 
@@ -330,6 +470,58 @@ export interface KickPlayerMessage extends BaseMessage {
   payload: {};
 }
 
+/**
+ * Lobby settings changed on the host. Previously settings only reached players
+ * on WELCOME and GAME_START, so anything the host changed after people joined
+ * stayed invisible until the game began.
+ */
+export interface SettingsUpdateMessage extends BaseMessage {
+  type: 'SETTINGS_UPDATE';
+  payload: {
+    settings: GameSettings;
+  };
+}
+
+export interface VerdictMessage extends BaseMessage {
+  type: 'VERDICT';
+  payload: { verdict: Verdict };
+}
+
+export interface VerdictUpdateMessage extends BaseMessage {
+  type: 'VERDICT_UPDATE';
+  payload: {
+    guilty: number;
+    innocent: number;
+    /** How many jurors have returned a verdict so far. */
+    cast: number;
+    total: number;
+  };
+}
+
+export interface DeadlockStateMessage extends BaseMessage {
+  type: 'DEADLOCK_STATE';
+  payload: {
+    positions: Record<PlayerId, string>;
+    bodies: Array<{ playerId: PlayerId; roomId: string }>;
+    tasksCompleted: number;
+    tasksTotal: number;
+  };
+}
+
+export interface TaskCompleteMessage extends BaseMessage {
+  type: 'TASK_COMPLETE';
+  payload: { taskId: string };
+}
+
+export interface TaskProgressMessage extends BaseMessage {
+  type: 'TASK_PROGRESS';
+  payload: {
+    completed: number;
+    /** Tasks needed for the town to earn its bonus tonight. */
+    required: number;
+  };
+}
+
 export interface TypingMessage extends BaseMessage {
   type: 'TYPING';
   payload: {
@@ -348,6 +540,8 @@ export interface ModeAssignMessage extends BaseMessage {
     assignedCategory: string | null;
     assignedNumber: number | null;
     commonWord: string | null;
+    /** Deadlock: the rooms this player must visit. Sent per player. */
+    tasks?: string[];
   };
 }
 
@@ -385,6 +579,12 @@ export type NetworkMessage =
   | DeathInfoMessage
   | KickPlayerMessage
   | TypingMessage
+  | SettingsUpdateMessage
+  | VerdictMessage
+  | VerdictUpdateMessage
+  | TaskCompleteMessage
+  | TaskProgressMessage
+  | DeadlockStateMessage
   | ModeAssignMessage
   | ModeActionMessage
   | ModeResultMessage;

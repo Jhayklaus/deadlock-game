@@ -1,4 +1,4 @@
-import { Player, Role, PlayerId } from './types';
+import { Player, Role, PlayerId, NightActionType } from './types';
 import { generateAIResponse } from './ai';
 import { ROLE_DEFINITIONS } from './roleData';
 
@@ -50,7 +50,7 @@ export async function getBotNightAction(
   players: Record<PlayerId, Player>, 
   allRoles: Record<PlayerId, Role>,
   gameHistory: string = ""
-): Promise<{ action: 'KILL' | 'SAVE' | 'INVESTIGATE', targetId: PlayerId } | null> {
+): Promise<{ action: NightActionType; targetId: PlayerId; secondTargetId?: PlayerId } | null> {
   
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
   const deadPlayers = Object.values(players).filter(p => !p.isAlive).map(p => p.name).join(', ');
@@ -62,7 +62,7 @@ export async function getBotNightAction(
   
   // Prepare prompt based on role
   let goal = "";
-  let actionType: 'KILL' | 'SAVE' | 'INVESTIGATE' | null = null;
+  let actionType: NightActionType | null = null;
 
   switch (role) {
     case 'mafia':
@@ -93,8 +93,35 @@ export async function getBotNightAction(
       break;
     case 'bodyguard':
       goal = "You are the BODYGUARD. Protect a valuable town member. Do not try to protect dead players.";
-      actionType = 'PROTECT' as any; // Using PROTECT internally if needed, or mapping to SAVE logic
+      actionType = 'PROTECT';
       break;
+    case 'escort':
+      goal = "You are the ESCORT. Block one player's night action. Target whoever you most suspect of being evil.";
+      actionType = 'ROLEBLOCK';
+      break;
+    case 'lookout':
+      goal = "You are the LOOKOUT. Watch one player to see who visits them tonight. Watch someone likely to be targeted.";
+      actionType = 'WATCH';
+      break;
+    case 'framer':
+      goal = "You are the FRAMER, working with the Mafia. Frame an innocent Town player so the Detective reads them as suspicious.";
+      actionType = 'FRAME';
+      break;
+    case 'witch':
+      goal = "You are the WITCH. Control one player and redirect their night action at someone else.";
+      actionType = 'CONTROL';
+      break;
+
+    // Self-targeting abilities. These are charge-limited, so a bot that spends
+    // them every night would burn out immediately — hold them back most nights.
+    case 'veteran':
+      if (Math.random() > 0.3) return null;
+      return { action: 'ALERT', targetId: botId };
+    case 'survivor':
+      if (Math.random() > 0.35) return null;
+      return { action: 'VEST', targetId: botId };
+
+    // Spy listens passively, Executioner works in daylight, and the rest sleep.
     default:
       return null;
   }
@@ -125,14 +152,20 @@ export async function getBotNightAction(
     Output: JUST the name. No explanations.
   `;
 
-  console.log(`[Bot ${botName}] Generative Night Action...`);
   const responseName = await generateAIResponse(prompt);
-  console.log(`[Bot ${botName}] AI Response: ${responseName}`);
 
-  const target = alivePlayers.find(p => responseName.toLowerCase().includes(p.name.toLowerCase()));
+  const target = responseName
+    ? alivePlayers.find(p => responseName.toLowerCase().includes(p.name.toLowerCase()))
+    : undefined;
 
   if (target) {
-    return { action: actionType as any, targetId: target.id };
+    if (actionType === 'CONTROL') {
+      const others = alivePlayers.filter(p => p.id !== target.id);
+      if (others.length === 0) return null;
+      const redirect = others[Math.floor(Math.random() * others.length)];
+      return { action: actionType, targetId: target.id, secondTargetId: redirect.id };
+    }
+    return { action: actionType, targetId: target.id };
   }
 
   // Fallback to random if AI fails
@@ -145,7 +178,8 @@ export async function getBotDayVote(
   botId: PlayerId,
   players: Record<PlayerId, Player>,
   chatHistory: string = "",
-  modeRole: string = ""
+  modeRole: string = "",
+  allRoles?: Record<PlayerId, Role>
 ): Promise<PlayerId | null> {
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
   if (alivePlayers.length === 0) return null;
@@ -189,14 +223,47 @@ export async function getBotDayVote(
     2. Respond with ONLY the name or SKIP.
   `;
 
-  console.log(`[Bot ${botName}] Generative Day Vote...`);
   const response = await generateAIResponse(prompt);
-  console.log(`[Bot ${botName}] AI Vote: ${response}`);
-  
-  if (response.toUpperCase().includes('SKIP')) return null;
-  
-  const target = alivePlayers.find(p => response.toLowerCase().includes(p.name.toLowerCase()));
-  return target ? target.id : null;
+
+  if (response) {
+    if (response.toUpperCase().includes('SKIP')) return null;
+    const target = alivePlayers.find(p => response.toLowerCase().includes(p.name.toLowerCase()));
+    if (target) return target.id;
+  }
+
+  // No AI, or it produced nothing usable. Decide locally — a bot that always
+  // abstains makes the whole game a chain of skipped votes.
+  return fallbackDayVote(botId, alivePlayers, allRoles);
+}
+
+/**
+ * Built-in voting behaviour, used whenever the AI is unavailable.
+ *
+ * Evil bots avoid their own side; everyone else picks someone at random. A
+ * small chance of abstaining keeps votes from being unnaturally decisive.
+ */
+function fallbackDayVote(
+  botId: PlayerId,
+  alivePlayers: Player[],
+  allRoles?: Record<PlayerId, Role>
+): PlayerId | null {
+  if (alivePlayers.length === 0) return null;
+  if (Math.random() < 0.15) return null; // occasional abstention
+
+  const myRole = allRoles?.[botId];
+  const isEvil = myRole === 'mafia' || myRole === 'framer' || myRole === 'serial_killer';
+
+  let pool = alivePlayers;
+  if (isEvil && allRoles) {
+    const sameSide = (r: Role | undefined) =>
+      myRole === 'serial_killer'
+        ? r === 'serial_killer'
+        : r === 'mafia' || r === 'framer';
+    const outsiders = alivePlayers.filter(p => !sameSide(allRoles[p.id]));
+    if (outsiders.length > 0) pool = outsiders;
+  }
+
+  return pool[Math.floor(Math.random() * pool.length)].id;
 }
 
 export async function getBotChat(
@@ -305,5 +372,37 @@ export async function getBotChat(
   `;
 
   const response = await generateAIResponse(prompt);
-  return response.replace(/"/g, '').trim();
+  if (response) return response.replace(/"/g, '').trim();
+
+  // Without AI, say something plausible rather than nothing — a lobby of
+  // silent bots reads as broken.
+  return fallbackChatLine(phase);
+}
+
+/** Canned filler used when no AI is configured. */
+function fallbackChatLine(phase: string): string {
+  const lines: Record<string, string[]> = {
+    day: [
+      'Anyone got anything solid?',
+      'That was quiet. Too quiet.',
+      'I am not sure about that last vote.',
+      'Who are we looking at today?',
+      'I would rather skip than guess wrong.',
+      'Something about this does not add up.',
+      'Talk to me, people.',
+    ],
+    night: [
+      'Keeping my head down.',
+      'Long night.',
+      'Watch yourselves out there.',
+    ],
+    game_over: [
+      'Well played, everyone.',
+      'I did not see that coming.',
+      'Good game.',
+      'Knew it.',
+    ],
+  };
+  const pool = lines[phase] ?? lines.day;
+  return pool[Math.floor(Math.random() * pool.length)];
 }

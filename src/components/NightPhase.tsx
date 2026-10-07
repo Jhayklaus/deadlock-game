@@ -7,7 +7,13 @@ import ChatBox from './ChatBox';
 import MobileChatDrawer from './MobileChatDrawer';
 import LastWillEditor from './LastWillEditor';
 import Graveyard from './Graveyard';
-import { Moon, Skull, Ghost, Eye, Shield, Crosshair, HeartPulse, Hourglass } from 'lucide-react';
+import NightTasks from './NightTasks';
+import {
+  Moon, Skull, Ghost, Eye, Shield, Crosshair, HeartPulse, Hourglass,
+  Ban, Radio, Fingerprint, LifeBuoy, Wand2, Gavel, Check,
+} from 'lucide-react';
+import { getNightAbility } from '../lib/nightRoles';
+import { isMafiaRole } from '../lib/types';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
@@ -26,38 +32,35 @@ export default function NightPhase() {
   }, []);
 
   const [selectedTarget, setSelectedTarget] = useState<string | null>(null);
+  const [secondTarget, setSecondTarget] = useState<string | null>(null);
   const [hasActed, setHasActed] = useState(false);
 
-  // Filter valid targets: Alive and not self (unless Doctor)
-  const targets = Object.values(players).filter(p => p.isAlive && (p.id !== myId || myRole === 'doctor'));
+  // What this role can do tonight. Absent means "no night action".
+  const ability = getNightAbility(myRole);
+
+  // Valid targets: alive, and self only when the ability allows it.
+  const targets = Object.values(players).filter(
+    p => p.isAlive && (p.id !== myId || !!ability?.canTargetSelf)
+  );
+
+  const needsSecond = !!ability?.twoTargets;
+  const ready = ability?.selfTarget
+    ? true
+    : !!selectedTarget && (!needsSecond || !!secondTarget);
 
   const handleAction = () => {
-    if (!selectedTarget) return;
-    
-    let action: 'KILL' | 'SAVE' | 'INVESTIGATE' | 'PROTECT' | null = null;
-    if (myRole === 'mafia') action = 'KILL';
-    if (myRole === 'doctor') action = 'SAVE';
-    if (myRole === 'detective') action = 'INVESTIGATE';
-    if (myRole === 'vigilante') action = 'KILL';
-    if (myRole === 'bodyguard') action = 'PROTECT';
-    if (myRole === 'serial_killer') action = 'KILL';
+    if (!ability || !ready) return;
 
-    if (action) {
-      networkManager.sendNightAction(action, selectedTarget);
+    if (ability.selfTarget) {
+      // Alert and vest target the actor themselves.
+      networkManager.sendNightAction(ability.action, myId);
+    } else if (needsSecond) {
+      networkManager.sendNightAction(ability.action, selectedTarget!, secondTarget!);
+    } else {
+      networkManager.sendNightAction(ability.action, selectedTarget!);
     }
-    
+
     setHasActed(true);
-  };
-
-  const getActionText = () => {
-    switch (myRole) {
-      case 'mafia': return 'Kill Target';
-      case 'doctor': return 'Save Life';
-      case 'detective': return 'Investigate';
-      case 'vigilante': return 'Eliminate';
-      case 'serial_killer': return 'Kill Target';
-      default: return 'Wait';
-    }
   };
 
   const getRoleIcon = () => {
@@ -69,6 +72,14 @@ export default function NightPhase() {
         case 'bodyguard': return <Shield size={24} className="text-slate-400" />;
         case 'medium': return <Ghost size={24} className="text-purple-500" />;
         case 'serial_killer': return <Skull size={24} className="text-red-600" />;
+        case 'escort': return <Ban size={24} className="text-fuchsia-400" />;
+        case 'veteran': return <Crosshair size={24} className="text-yellow-500" />;
+        case 'lookout': return <Eye size={24} className="text-sky-400" />;
+        case 'spy': return <Radio size={24} className="text-cyan-400" />;
+        case 'framer': return <Fingerprint size={24} className="text-rose-500" />;
+        case 'survivor': return <LifeBuoy size={24} className="text-lime-400" />;
+        case 'executioner': return <Gavel size={24} className="text-stone-300" />;
+        case 'witch': return <Wand2 size={24} className="text-violet-400" />;
         default: return <Moon size={24} className="text-slate-500" />;
     }
   }
@@ -101,19 +112,31 @@ export default function NightPhase() {
     );
   }
 
-  if (myRole === 'civilian' || myRole === 'mayor' || myRole === 'jester') {
+  // No entry in the ability table means nothing to do tonight. The Spy is the
+  // exception: it acts passively, so it reads as 'no action' but still gets a
+  // report, and the Medium has its own screen below.
+  if (!ability && myRole !== 'medium') {
     return (
       <div className="w-full max-w-4xl mx-auto space-y-6 md:space-y-8">
         <Card variant="glass" className="text-center p-8 md:p-12 border-slate-800">
             <div className="flex justify-center mb-6">
                 <Moon size={64} className="text-slate-600 animate-pulse" />
             </div>
-            <h2 className="text-2xl md:text-4xl font-bold text-slate-400 mb-4 font-serif">Night has fallen</h2>
-            <p className="text-slate-500 text-lg">Sleep safely. The city is busy.</p>
+            <h2 className="text-2xl md:text-4xl font-heading font-bold text-ink mb-4">Night has fallen</h2>
+            <p className="text-ink-muted text-lg">
+              {myRole === 'spy'
+                ? 'You listen in the dark. Whatever the Mafia does tonight, you will hear it.'
+                : myRole === 'executioner'
+                ? 'Nothing to do but plan. Your work happens in daylight, in the vote.'
+                : 'Sleep safely. The city is busy.'}
+            </p>
         </Card>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <LastWillEditor />
-            <Graveyard />
+            <NightTasks />
+            <div className="space-y-6">
+              <LastWillEditor />
+              <Graveyard />
+            </div>
         </div>
       </div>
     );
@@ -139,8 +162,8 @@ export default function NightPhase() {
     );
   }
 
-  const isMafia = myRole === 'mafia';
-  // Only show chat if there are OTHER mafia members
+  // The Framer is Mafia too, so they share the private channel.
+  const isMafia = isMafiaRole(myRole ?? undefined);
   const showMafiaChat = isMafia && mafiaPartners.filter(id => id !== myId).length > 0;
 
   return (
@@ -173,55 +196,120 @@ export default function NightPhase() {
             
             {!hasActed ? (
             <>
-                <p className="text-slate-400 mb-4 uppercase tracking-widest text-xs font-bold">Select Target</p>
-                <div className="grid grid-cols-2 gap-3 mb-8">
-                {targets.map(player => (
-                    <Card
-                        key={player.id}
-                        variant={selectedTarget === player.id ? "interactive" : "interactive"}
-                        onClick={() => {
-                             if (myRole === 'mafia' && mafiaPartners.includes(player.id)) return;
-                             setSelectedTarget(player.id);
-                        }}
-                        className={clsx(
-                            "text-left relative group border transition-all duration-200",
-                            selectedTarget === player.id 
-                            ? "border-red-500 bg-red-950/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]" 
-                            : (myRole === 'mafia' && mafiaPartners.includes(player.id))
-                                ? "border-red-500/30 bg-red-900/10 opacity-50 cursor-not-allowed hover:border-red-500/30"
-                                : "border-slate-700 hover:border-slate-600"
-                        )}
-                    >
-                        <div className="flex flex-col relative z-10">
-                            <span className={clsx("font-bold", selectedTarget === player.id ? "text-white" : "text-slate-300")}>
-                                {player.name}
-                            </span>
-                            {myRole === 'mafia' && mafiaPartners.includes(player.id) && (
-                                <span className="text-[10px] block opacity-50 uppercase tracking-wider text-red-300">Partner</span>
+                {ability && (
+                  <p className="text-ink-muted text-sm mb-5 leading-relaxed">{ability.hint}</p>
+                )}
+
+                {ability?.selfTarget ? (
+                  /* Alert and vest act on the actor, so there is nothing to
+                     pick — just a decision to make. */
+                  <div className="mb-8 p-6 rounded-xl border border-edge/60 bg-base/40 text-center">
+                    <div className="flex justify-center mb-3">{getRoleIcon()}</div>
+                    <p className="text-ink font-semibold mb-1">{ability.prompt}</p>
+                    {ability.charges !== undefined && (
+                      <p className="text-xs text-ink-muted">
+                        Limited to {ability.charges} uses per game.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-ink-muted mb-3 uppercase tracking-widest text-xs font-bold">
+                      {ability?.prompt ?? 'Select Target'}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                    {targets.map(player => {
+                        const isPartner = isMafia && mafiaPartners.includes(player.id) && player.id !== myId;
+                        const isPicked = selectedTarget === player.id;
+                        return (
+                        <Card
+                            key={player.id}
+                            variant="interactive"
+                            onClick={() => {
+                                 if (isPartner) return;
+                                 setSelectedTarget(player.id);
+                                 // Changing the first pick invalidates the second.
+                                 if (needsSecond) setSecondTarget(null);
+                            }}
+                            className={clsx(
+                                "text-left relative border transition-all duration-200",
+                                isPicked
+                                ? "border-accent bg-accent/10 shadow-accent-sm"
+                                : isPartner
+                                    ? "border-danger/30 bg-danger/5 opacity-50 cursor-not-allowed"
+                                    : "border-edge/60 hover:border-edge"
                             )}
+                        >
+                            <div className="flex flex-col relative z-10">
+                                <span className={clsx("font-semibold", isPicked ? "text-ink" : "text-ink-muted")}>
+                                    {player.name}
+                                </span>
+                                {isPartner && (
+                                    <span className="text-[10px] block opacity-70 uppercase tracking-wider text-danger">Partner</span>
+                                )}
+                            </div>
+                        </Card>
+                        );
+                    })}
+                    </div>
+
+                    {/* The Witch needs a destination as well as a victim. */}
+                    {needsSecond && selectedTarget && (
+                      <div className="mb-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <p className="text-ink-muted mb-3 uppercase tracking-widest text-xs font-bold">
+                          {ability?.secondPrompt ?? 'Redirect to'}
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                          {Object.values(players)
+                            .filter(p => p.isAlive && p.id !== selectedTarget)
+                            .map(player => (
+                            <Card
+                              key={player.id}
+                              variant="interactive"
+                              onClick={() => setSecondTarget(player.id)}
+                              className={clsx(
+                                "text-left border transition-all duration-200",
+                                secondTarget === player.id
+                                  ? "border-accent bg-accent/10 shadow-accent-sm"
+                                  : "border-edge/60 hover:border-edge"
+                              )}
+                            >
+                              <span className={clsx(
+                                "font-semibold",
+                                secondTarget === player.id ? "text-ink" : "text-ink-muted"
+                              )}>
+                                {player.name}
+                              </span>
+                            </Card>
+                          ))}
                         </div>
-                    </Card>
-                ))}
-                </div>
+                      </div>
+                    )}
+                  </>
+                )}
 
                 <Button
                     onClick={handleAction}
-                    disabled={!selectedTarget}
-                    variant={myRole === 'mafia' || myRole === 'serial_killer' || myRole === 'vigilante' ? "danger" : "primary"}
-                    className="w-full flex items-center justify-center gap-2 py-4"
+                    disabled={!ready}
+                    variant={ability?.tone === 'danger' ? 'danger' : ability?.tone === 'accent' ? 'accent' : 'primary'}
+                    className="w-full py-4"
                 >
-                    {myRole === 'mafia' ? <Crosshair size={20} /> : <Eye size={20} />}
-                    <span>{getActionText()}</span>
+                    {ability?.tone === 'danger' ? <Crosshair size={18} /> : <Check size={18} />}
+                    <span>{ability?.label ?? 'Wait'}</span>
                 </Button>
             </>
             ) : (
-            <Card variant="default" className="py-12 bg-slate-950/50 text-center border-slate-800 flex flex-col items-center justify-center">
-                <div className="bg-slate-900 p-4 rounded-full mb-4 animate-pulse">
-                    <Hourglass size={32} className="text-slate-500" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-300 mb-2">Action Confirmed</h3>
-                <span className="text-slate-500 italic">Waiting for night to end...</span>
-            </Card>
+            <div className="space-y-6">
+              <Card variant="default" className="py-8 text-center flex flex-col items-center justify-center">
+                  <div className="bg-surface p-4 rounded-full mb-4">
+                      <Hourglass size={28} className="text-ink-muted" />
+                  </div>
+                  <h3 className="text-lg font-heading font-semibold text-ink mb-1">Action confirmed</h3>
+                  <span className="text-ink-muted text-sm">Waiting for night to end…</span>
+              </Card>
+              {/* Something to do with the rest of the night. */}
+              <NightTasks />
+            </div>
             )}
         </Card>
 

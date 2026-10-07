@@ -10,9 +10,15 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <input
         ref={ref}
+        aria-invalid={error || undefined}
         className={clsx(
-          "flex h-12 w-full rounded-lg border bg-slate-950/50 px-4 py-2 text-sm ring-offset-slate-950 file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 focus-visible:border-amber-500 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200",
-          error ? "border-red-500 focus-visible:ring-red-500/50" : "border-slate-700",
+          'flex h-12 w-full rounded-xl border bg-base/60 px-4 py-2 text-sm text-ink',
+          'placeholder:text-ink-muted/70 transition-all duration-200 ease-out-expo',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          error
+            ? 'border-danger/70 focus-visible:ring-danger/40 focus-visible:border-danger'
+            : 'border-edge/70 hover:border-edge focus-visible:border-accent',
           className
         )}
         {...props}
@@ -20,4 +26,4 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     );
   }
 );
-Input.displayName = "Input";
+Input.displayName = 'Input';

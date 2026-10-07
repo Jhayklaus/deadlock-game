@@ -4,9 +4,13 @@
  * Three word tiers: Common (most players), Undercover (1-2 agents),
  * Blank (1 player gets nothing). Players give one clue per round,
  * trying to identify the Undercoverts without revealing the Common Word.
- * Single round: discuss → vote → reveal.
  *
- * Phase flow: role_assignment → day_discussion → voting → elimination_reveal → game_over
+ * MULTI-ROUND: voting out a Common player does NOT end the game — play loops
+ * back into another discussion round. The game ends only when every
+ * Undercover has been voted out (Town wins) or the Undercoverts reach
+ * numerical parity with the Town (Undercoverts win).
+ *
+ * Phase flow: role_assignment → (day_discussion → voting → elimination_reveal)* → game_over
  */
 import type {
   GameModeDefinition,
@@ -111,7 +115,9 @@ export const undercoverMode: GameModeDefinition = {
       case 'role_assignment': return 'day_discussion';
       case 'day_discussion': return 'voting';
       case 'voting': return 'elimination_reveal';
-      case 'elimination_reveal': return 'game_over';
+      // Loop back for another round. NetworkManager checks the win condition
+      // first and only reaches here when nobody has won yet.
+      case 'elimination_reveal': return 'day_discussion';
       default: return 'game_over';
     }
   },

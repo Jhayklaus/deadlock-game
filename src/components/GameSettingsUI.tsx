@@ -1,13 +1,14 @@
 import { useGameStore } from '../lib/store';
+import { networkManager } from '../lib/network';
 import { GameSettings } from '../lib/types';
-import { Settings, Clock, Users } from 'lucide-react';
+import { Settings, Clock, Users, Gavel } from 'lucide-react';
 import { Input } from './ui/Input';
+import { VoiceRoomSetting } from './VoiceRoom';
 import { clsx } from 'clsx';
 
 export default function GameSettingsUI() {
-  const { settings, setSettings, isHost, gameMode } = useGameStore(state => ({
+  const { settings, isHost, gameMode } = useGameStore(state => ({
     settings: state.settings,
-    setSettings: state.setSettings,
     isHost: state.myId === state.hostId,
     gameMode: state.gameMode,
   }));
@@ -41,12 +42,14 @@ export default function GameSettingsUI() {
     );
   }
 
+  // Route through the network manager rather than the store directly, so the
+  // change is broadcast to everyone already sitting in the lobby.
   const updateSetting = (key: keyof GameSettings, value: number) => {
-    setSettings({ ...settings, [key]: value });
+    networkManager.updateSettings({ ...settings, [key]: value });
   };
 
   const updateRole = (role: keyof GameSettings['roles'], key: 'count' | 'chance', value: number) => {
-    setSettings({
+    networkManager.updateSettings({
       ...settings,
       roles: {
         ...settings.roles,
@@ -62,6 +65,74 @@ export default function GameSettingsUI() {
       </h3>
 
       <div className="space-y-8">
+        <VoiceRoomSetting />
+
+        {isClassic && (
+          <div className="space-y-3">
+            <h4 className="font-semibold text-ink-muted border-b border-edge/50 pb-2 flex items-center gap-2 text-xs uppercase tracking-wider">
+              <Gavel size={14} /> Trial
+            </h4>
+
+            <label className="flex items-center justify-between gap-4 p-3 rounded-xl border border-edge/60 bg-base/40 cursor-pointer mb-3">
+              <span>
+                <span className="block text-sm font-semibold text-ink">Night tasks</span>
+                <span className="block text-xs text-ink-muted mt-0.5">
+                  Give players with no night action a small task. Finish the town&apos;s quota
+                  and discussion runs longer the next day.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.nightTasksEnabled !== false}
+                onChange={e => networkManager.updateSettings({ ...settings, nightTasksEnabled: e.target.checked })}
+                className="w-5 h-5 shrink-0 accent-current text-accent cursor-pointer"
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-4 p-3 rounded-xl border border-edge/60 bg-base/40 cursor-pointer">
+              <span>
+                <span className="block text-sm font-semibold text-ink">Trial before elimination</span>
+                <span className="block text-xs text-ink-muted mt-0.5">
+                  The accused gets to defend themselves, then the town votes guilty or innocent.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.trialEnabled !== false}
+                onChange={e => networkManager.updateSettings({ ...settings, trialEnabled: e.target.checked })}
+                className="w-5 h-5 shrink-0 accent-current text-accent cursor-pointer"
+              />
+            </label>
+
+            {settings.trialEnabled !== false && (
+              <div className="grid grid-cols-2 gap-4">
+                {([
+                  { label: 'Defense', key: 'defenseDuration', min: 10, max: 120 },
+                  { label: 'Verdict', key: 'verdictDuration', min: 10, max: 120 },
+                ] as const).map(t => (
+                  <div key={t.key} className="space-y-2">
+                    <label className="text-xs text-ink-muted font-bold uppercase">{t.label}</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={t.min}
+                        max={t.max}
+                        step={5}
+                        value={(settings[t.key] as number) ?? 30}
+                        onChange={e => updateSetting(t.key, parseInt(e.target.value))}
+                        className="w-full h-2 bg-surface rounded-lg appearance-none cursor-pointer"
+                      />
+                      <div className="text-right text-sm font-mono font-bold w-12 text-ink-muted">
+                        {(settings[t.key] as number) ?? 30}s
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Timers */}
         <div className="space-y-6">
           <h4 className="font-bold text-slate-300 border-b border-slate-700 pb-2 flex items-center gap-2 text-sm uppercase tracking-wider">
@@ -106,7 +177,15 @@ export default function GameSettingsUI() {
           </h4>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-2 gap-4">
-            {(['mafia', 'detective', 'doctor', 'vigilante', 'mayor', 'serial_killer', 'jester', 'bodyguard', 'medium'] as const).map((role) => (
+            {([
+              // Town
+              'detective', 'doctor', 'bodyguard', 'vigilante', 'mayor', 'medium',
+              'escort', 'veteran', 'lookout', 'spy',
+              // Mafia
+              'mafia', 'framer',
+              // Neutral
+              'serial_killer', 'jester', 'survivor', 'executioner', 'witch',
+            ] as const).map((role) => (
                 <div key={role} className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 hover:border-slate-700 transition group">
                 <div className="flex justify-between items-center mb-4">
                     <span className="capitalize font-bold text-slate-200">{role.replace('_', ' ')}</span>

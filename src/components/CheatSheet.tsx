@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { clsx } from 'clsx';
-import { Book, X, User, Shield, Search, Crosshair, Vote, Skull, Smile, Ghost, HeartPulse } from 'lucide-react';
+import { Book, X, User, Shield, Search, Crosshair, Vote, Skull, Smile, Ghost, HeartPulse,
+  Ban, Eye, Radio, Fingerprint, LifeBuoy, Gavel, Wand2 } from 'lucide-react';
 import { ROLE_DEFINITIONS } from '../lib/roleData';
 
 type RoleTheme = {
@@ -82,7 +83,63 @@ const ROLE_THEMES: Record<string, RoleTheme> = {
     text: "text-indigo-400",
     shadow: "shadow-indigo-900/20",
     iconBg: "bg-indigo-500/10"
-  }
+  },
+  Escort: {
+    border: "border-fuchsia-500/50 hover:border-fuchsia-500",
+    bg: "from-fuchsia-950/80 to-slate-950",
+    text: "text-fuchsia-400",
+    shadow: "shadow-fuchsia-900/20",
+    iconBg: "bg-fuchsia-500/10"
+  },
+  Veteran: {
+    border: "border-yellow-500/50 hover:border-yellow-500",
+    bg: "from-yellow-950/80 to-slate-950",
+    text: "text-yellow-500",
+    shadow: "shadow-yellow-900/20",
+    iconBg: "bg-yellow-500/10"
+  },
+  Lookout: {
+    border: "border-sky-500/50 hover:border-sky-500",
+    bg: "from-sky-950/80 to-slate-950",
+    text: "text-sky-400",
+    shadow: "shadow-sky-900/20",
+    iconBg: "bg-sky-500/10"
+  },
+  Spy: {
+    border: "border-cyan-500/50 hover:border-cyan-500",
+    bg: "from-cyan-950/80 to-slate-950",
+    text: "text-cyan-400",
+    shadow: "shadow-cyan-900/20",
+    iconBg: "bg-cyan-500/10"
+  },
+  Framer: {
+    border: "border-rose-500/50 hover:border-rose-500",
+    bg: "from-rose-950/80 to-slate-950",
+    text: "text-rose-500",
+    shadow: "shadow-rose-900/20",
+    iconBg: "bg-rose-500/10"
+  },
+  Survivor: {
+    border: "border-lime-500/50 hover:border-lime-500",
+    bg: "from-lime-950/80 to-slate-950",
+    text: "text-lime-400",
+    shadow: "shadow-lime-900/20",
+    iconBg: "bg-lime-500/10"
+  },
+  Executioner: {
+    border: "border-stone-500/50 hover:border-stone-400",
+    bg: "from-stone-900/80 to-slate-950",
+    text: "text-stone-300",
+    shadow: "shadow-stone-900/20",
+    iconBg: "bg-stone-500/10"
+  },
+  Witch: {
+    border: "border-violet-500/50 hover:border-violet-500",
+    bg: "from-violet-950/80 to-slate-950",
+    text: "text-violet-400",
+    shadow: "shadow-violet-900/20",
+    iconBg: "bg-violet-500/10"
+  },
 };
 
 const ROLE_ICONS: Record<string, React.ReactNode> = {
@@ -95,7 +152,15 @@ const ROLE_ICONS: Record<string, React.ReactNode> = {
   'Jester': <Smile size={32} />,
   'Civilian': <User size={32} />,
   'Bodyguard': <Shield size={32} />,
-  'Medium': <Ghost size={32} />
+  'Medium': <Ghost size={32} />,
+  'Escort': <Ban size={32} />,
+  'Veteran': <Crosshair size={32} />,
+  'Lookout': <Eye size={32} />,
+  'Spy': <Radio size={32} />,
+  'Framer': <Fingerprint size={32} />,
+  'Survivor': <LifeBuoy size={32} />,
+  'Executioner': <Gavel size={32} />,
+  'Witch': <Wand2 size={32} />
 };
 
 const ROLES = ROLE_DEFINITIONS.map(def => ({

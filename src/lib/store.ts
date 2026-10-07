@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage, GameModeId, ModeRoleId, UiScreen } from './types';
+import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage, GameModeId, ModeRoleId, UiScreen, ClassicWinner, Verdict } from './types';
 
 interface GameActions {
   setMyId: (id: PlayerId) => void;
@@ -16,7 +16,7 @@ interface GameActions {
   setLastNightResult: (result: string) => void;
   setEliminationResult: (result: { eliminatedId: PlayerId | null; resultText: string } | null) => void;
   setVoteCounts: (counts: Record<PlayerId, number>) => void;
-  setGameOver: (winner: 'town' | 'mafia' | 'serial_killer' | 'jester', allRoles: Record<PlayerId, Role>) => void;
+  setGameOver: (winner: ClassicWinner, allRoles: Record<PlayerId, Role>) => void;
   resetGame: () => void;
   resetSession: () => void;
   resetToLobby: () => void;
@@ -42,9 +42,24 @@ interface GameActions {
   setUiScreen: (screen: UiScreen) => void;
   setSelectedMode: (mode: GameModeId) => void;
   setAllModeRoles: (roles: Record<PlayerId, string>) => void;
+  setRound: (round: number) => void;
+  setAlsoWon: (ids: PlayerId[]) => void;
+  setAccused: (id: PlayerId | null) => void;
+  setVerdictCounts: (counts: { guilty: number; innocent: number; cast: number; total: number }) => void;
+  setMyVerdict: (verdict: Verdict | null) => void;
+  setTaskProgress: (progress: { completed: number; required: number }) => void;
+  bumpMyTasksDone: () => void;
+  resetTasks: () => void;
+  setDeadlock: (patch: Partial<import('./types').DeadlockView>) => void;
+  resetDeadlock: () => void;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
+  voiceRoomUrl: null,
+  nightTasksEnabled: true,
+  trialEnabled: true,
+  defenseDuration: 30,
+  verdictDuration: 30,
   dayDuration: 180,
   discussionDuration: 60,
   votingDuration: 60,
@@ -59,7 +74,28 @@ const DEFAULT_SETTINGS: GameSettings = {
     jester: { count: 1, chance: 30 },
     bodyguard: { count: 1, chance: 50 },
     medium: { count: 1, chance: 50 },
+    // New roles default to off so existing hosts keep the setup they know.
+    escort: { count: 0, chance: 100 },
+    veteran: { count: 0, chance: 100 },
+    lookout: { count: 0, chance: 100 },
+    spy: { count: 0, chance: 100 },
+    framer: { count: 0, chance: 100 },
+    survivor: { count: 0, chance: 100 },
+    executioner: { count: 0, chance: 100 },
+    witch: { count: 0, chance: 100 },
   }
+};
+
+const DEFAULT_DEADLOCK = {
+  positions: {},
+  bodies: [],
+  myTasks: [],
+  myTasksDone: [],
+  tasksCompleted: 0,
+  tasksTotal: 0,
+  killReadyAt: 0,
+  emergencyUsed: false,
+  lastMeeting: null,
 };
 
 const initialState: GameState = {
@@ -96,6 +132,14 @@ const initialState: GameState = {
   modeWinnerLabel: null,
   modeWinnerDescription: null,
   allModeRoles: {},
+  round: 1,
+  alsoWon: [],
+  accusedId: null,
+  verdictCounts: { guilty: 0, innocent: 0, cast: 0, total: 0 },
+  myVerdict: null,
+  taskProgress: { completed: 0, required: 0 },
+  myTasksDone: 0,
+  deadlock: DEFAULT_DEADLOCK,
 };
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -185,6 +229,14 @@ export const useGameStore = create<GameState & GameActions>()(
           modeWinnerLabel: null,
           modeWinnerDescription: null,
           allModeRoles: {},
+          round: 1,
+          alsoWon: [],
+          accusedId: null,
+          verdictCounts: { guilty: 0, innocent: 0, cast: 0, total: 0 },
+          myVerdict: null,
+          taskProgress: { completed: 0, required: 0 },
+          myTasksDone: 0,
+          deadlock: DEFAULT_DEADLOCK,
           uiScreen: 'in_lobby' as UiScreen,
         };
       }),
@@ -214,6 +266,16 @@ export const useGameStore = create<GameState & GameActions>()(
       setUiScreen: (uiScreen) => set({ uiScreen }),
       setSelectedMode: (selectedMode) => set({ selectedMode }),
       setAllModeRoles: (allModeRoles) => set({ allModeRoles }),
+      setRound: (round) => set({ round }),
+      setAlsoWon: (alsoWon) => set({ alsoWon }),
+      setAccused: (accusedId) => set({ accusedId }),
+      setVerdictCounts: (verdictCounts) => set({ verdictCounts }),
+      setMyVerdict: (myVerdict) => set({ myVerdict }),
+      setTaskProgress: (taskProgress) => set({ taskProgress }),
+      bumpMyTasksDone: () => set(state => ({ myTasksDone: state.myTasksDone + 1 })),
+      resetTasks: () => set({ taskProgress: { completed: 0, required: 0 }, myTasksDone: 0 }),
+      setDeadlock: (patch) => set(state => ({ deadlock: { ...state.deadlock, ...patch } })),
+      resetDeadlock: () => set({ deadlock: DEFAULT_DEADLOCK }),
     }),
     {
       name: 'tno-game-storage',
@@ -246,6 +308,10 @@ export const useGameStore = create<GameState & GameActions>()(
         modeWinnerLabel: state.modeWinnerLabel,
         modeWinnerDescription: state.modeWinnerDescription,
         allModeRoles: state.allModeRoles,
+        round: state.round,
+        // Persisted so a refresh mid-game does not lose the player's own
+        // task list, which is only ever sent to them once.
+        deadlock: state.deadlock,
       }),
     }
   )

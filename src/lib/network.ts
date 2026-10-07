@@ -1,10 +1,15 @@
 import { io, Socket } from 'socket.io-client';
 import { useGameStore } from './store';
-import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId } from './types';
+import { NetworkMessage, Player, PlayerId, GamePhase, GameModeId, HostPrivateState, ModeRoleId, GameSettings, Role, NightActionType, ClassicWinner, Verdict } from './types';
+import { isTownRole, isMafiaRole } from './types';
 import { distributeRoles } from './gameLogic';
 import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from './bots';
 import { soundManager } from './sound';
 import { getMode } from '../modes/registry';
+import { resolveNight, emptyNightActions, ABILITY_CHARGES } from './nightResolution';
+import { isAdjacent, SPAWN_ROOM, getRoom } from '../data/deadlockMap';
+import { KILL_COOLDOWN_SECONDS } from '../modes/deadlock';
+import type { NightActions } from './nightResolution';
 // Side-effect import: registers all game modes into the registry
 import '../modes/index';
 
@@ -26,30 +31,151 @@ class NetworkManager {
   private modeRoles: Record<PlayerId, string> = {};
 
   // Host state for night actions
-  private nightActions: {
-    mafiaVote: Record<PlayerId, PlayerId>; // voterId -> targetId
-    doctorTargets: Record<PlayerId, PlayerId>; // doctorId -> targetId
-    detectiveTargets: Record<PlayerId, PlayerId>; // detectiveId -> targetId
-    vigilanteTargets: Record<PlayerId, PlayerId>; // vigilanteId -> targetId
-    serialKillerTargets: Record<PlayerId, PlayerId>; // skId -> targetId
-    bodyguardTargets: Record<PlayerId, PlayerId>;
-  } = { 
-    mafiaVote: {}, 
-    doctorTargets: {}, 
-    detectiveTargets: {}, 
-    vigilanteTargets: {}, 
-    serialKillerTargets: {},
-    bodyguardTargets: {}
-  };
+  private nightActions: NightActions = emptyNightActions();
+
+  /**
+   * Remaining uses of limited abilities (Veteran alerts, Survivor vests),
+   * keyed by player. Persists across nights for the whole game.
+   */
+  private abilityUses: Record<PlayerId, number> = {};
+
+  /** Executioner → the player they must get lynched. */
+  private executionerTargets: Record<PlayerId, PlayerId> = {};
+
+  /** Neutral roles that have already met their goal (e.g. a lynched Jester). */
+  private neutralWinners: Set<PlayerId> = new Set();
 
   // Host state for day votes
   private dayVotes: Record<PlayerId, PlayerId | null> = {};
+
+  /** Juror verdicts for the trial in progress. */
+  private trialVerdicts: Record<PlayerId, Verdict> = {};
+
+  /** Night tasks completed this night, per player. */
+  private taskCompletions: Record<PlayerId, number> = {};
+
+  /** Seconds added to the next discussion when the town meets its quota. */
+  private static readonly TASK_BONUS_SECONDS = 20;
 
   // Host state for Last Wills
   private lastWills: Record<PlayerId, string> = {};
 
   // Bot Chat Loop
   private botChatInterval: NodeJS.Timeout | null = null;
+
+  /** The room's code, which stays constant even after the host changes. */
+  private roomId: string | null = null;
+
+  /** Periodic snapshot upload, so the room survives losing its host. */
+  private stateSyncInterval: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Everything a replacement host needs to keep running the game.
+   *
+   * This carries every secret in play (roles, secret words, the Executioner's
+   * mark), so the server hands it to the elected successor alone and never to
+   * the room.
+   */
+  private captureHostState() {
+      const store = useGameStore.getState();
+      return {
+          activeModeId: this.activeModeId,
+          hostPrivateState: this.hostPrivateState,
+          modeRoles: this.modeRoles,
+          nightActions: this.nightActions,
+          dayVotes: this.dayVotes,
+          trialVerdicts: this.trialVerdicts,
+          taskCompletions: this.taskCompletions,
+          lastWills: this.lastWills,
+          abilityUses: this.abilityUses,
+          executionerTargets: this.executionerTargets,
+          neutralWinners: [...this.neutralWinners],
+          // Public game state, so the successor's store matches the room.
+          players: store.players,
+          allRoles: store.allRoles,
+          phase: store.phase,
+          settings: store.settings,
+          timerEnd: store.timerEnd,
+          round: store.round,
+          accusedId: store.accusedId,
+          gameMode: store.gameMode,
+      };
+  }
+
+  private restoreHostState(snapshot: ReturnType<NetworkManager['captureHostState']> | null) {
+      if (!snapshot) return;
+      const store = useGameStore.getState();
+
+      this.activeModeId = snapshot.activeModeId ?? 'classic_mafia';
+      this.hostPrivateState = snapshot.hostPrivateState ?? {};
+      this.modeRoles = snapshot.modeRoles ?? {};
+      this.nightActions = snapshot.nightActions ?? emptyNightActions();
+      this.dayVotes = snapshot.dayVotes ?? {};
+      this.trialVerdicts = snapshot.trialVerdicts ?? {};
+      this.taskCompletions = snapshot.taskCompletions ?? {};
+      this.lastWills = snapshot.lastWills ?? {};
+      this.abilityUses = snapshot.abilityUses ?? {};
+      this.executionerTargets = snapshot.executionerTargets ?? {};
+      this.neutralWinners = new Set(snapshot.neutralWinners ?? []);
+
+      if (snapshot.players) store.setPlayers(snapshot.players);
+      if (snapshot.allRoles) store.setAllRoles(snapshot.allRoles);
+      if (snapshot.settings) store.setSettings(snapshot.settings);
+      if (snapshot.gameMode) store.setGameMode(snapshot.gameMode);
+      if (typeof snapshot.round === 'number') store.setRound(snapshot.round);
+      store.setAccused(snapshot.accusedId ?? null);
+  }
+
+  /** Streams state to the server while we are the host. */
+  private startStateSync() {
+      this.stopStateSync();
+      this.stateSyncInterval = setInterval(() => {
+          const store = useGameStore.getState();
+          if (!this.roomId || store.myId !== store.hostId) return;
+          this.socket?.emit('host_state_sync', {
+              roomId: this.roomId,
+              snapshot: this.captureHostState(),
+          });
+      }, 3000);
+  }
+
+  private stopStateSync() {
+      if (this.stateSyncInterval) {
+          clearInterval(this.stateSyncInterval);
+          this.stateSyncInterval = null;
+      }
+  }
+
+  /**
+   * Picks up the game after the previous host dropped out. Restores their
+   * state, then restarts whatever timer the current phase was running — those
+   * live in setTimeout on the host and died with their tab.
+   */
+  private assumeHost(newHostId: string, snapshot: ReturnType<NetworkManager['captureHostState']> | null) {
+      const store = useGameStore.getState();
+      const wasHost = store.myId === store.hostId;
+      store.setHostId(newHostId);
+
+      if (store.myId !== newHostId) {
+          // Just a pointer update for everyone else.
+          return;
+      }
+      if (wasHost) return;
+
+      this.restoreHostState(snapshot);
+      this.startStateSync();
+      this.broadcastSystemMessage('The host disconnected. You are now running the game.');
+      this.broadcastPlayerUpdate();
+
+      const phase = useGameStore.getState().phase;
+      if (phase === 'lobby' || phase === 'game_over') return;
+
+      // Resume the phase clock. If it already expired while authority was
+      // changing hands, resolve immediately rather than stalling the room.
+      const timerEnd = useGameStore.getState().timerEnd;
+      const remaining = timerEnd ? timerEnd - Date.now() : 0;
+      setTimeout(() => this.handlePhaseTimeout(phase), Math.max(0, remaining));
+  }
 
   // Initialize Socket
   initialize(existingId?: string, onOpen?: (id: string) => void) {
@@ -74,6 +200,7 @@ class NetworkManager {
 
       // Restore Host Timers
       const store = useGameStore.getState();
+      if (!this.roomId && store.hostId) this.roomId = store.hostId;
       if (store.myId === store.hostId && store.timerEnd && store.phase !== 'lobby' && store.phase !== 'game_over') {
           const remaining = store.timerEnd - Date.now();
           console.log(`Restoring host timer for ${store.phase}, remaining: ${remaining}ms`);
@@ -104,6 +231,13 @@ class NetworkManager {
         this.handleMessage(message);
     });
 
+    this.socket.on('host_migrated', ({ roomId, newHostId, snapshot }: {
+        roomId: string; newHostId: string; snapshot: ReturnType<NetworkManager['captureHostState']> | null;
+    }) => {
+        this.roomId = roomId;
+        this.assumeHost(newHostId, snapshot);
+    });
+
     this.socket.on('player_left', ({ senderId }: { senderId: string }) => {
       if (useGameStore.getState().hostId === useGameStore.getState().myId) {
         useGameStore.getState().updatePlayer(senderId, { isOnline: false });
@@ -126,6 +260,12 @@ class NetworkManager {
   }
 
   private handlePhaseTimeout(phase: GamePhase) {
+      // Stale-timer guard. A phase can be resolved before its clock runs out
+      // (e.g. an eliminated impostor submits their guess early), which leaves
+      // an orphaned setTimeout behind. Without this guard that stale timer
+      // fires into the *next* round and resolves it a second time.
+      if (useGameStore.getState().phase !== phase) return;
+
       if (this.activeModeId === 'classic_mafia') {
           // ── Classic Mafia: original hardcoded phase transitions ────────────
           switch (phase) {
@@ -141,12 +281,39 @@ class NetworkManager {
               case 'voting':
                   this.resolveVotingPhase();
                   break;
+              case 'trial_defense':
+                  this.startTrialVerdict();
+                  break;
+              case 'trial_verdict':
+                  this.resolveTrialVerdict();
+                  break;
               case 'elimination_reveal':
                   this.startNightPhase();
                   break;
           }
       } else {
           // ── Non-classic modes: mode-driven transitions ────────────────────
+          if (this.activeModeId === 'deadlock') {
+              switch (phase) {
+                  case 'role_assignment':
+                      this.startRoamingPhase();
+                      break;
+                  case 'day_discussion':
+                      this.startVotingPhase();
+                      break;
+                  case 'voting':
+                      this.resolveModeVotingPhase();
+                      break;
+                  case 'elimination_reveal':
+                      // Back to the station rather than into another meeting.
+                      this.startRoamingPhase();
+                      break;
+                  // 'roaming' has no deadline — it ends when someone calls a
+                  // meeting, so no timeout arrives for it.
+              }
+              return;
+          }
+
           switch (phase) {
               case 'role_assignment':
                   this.startModeDayPhase();
@@ -161,7 +328,7 @@ class NetworkManager {
                   this.resolveModeImpostorGuess();
                   break;
               case 'elimination_reveal':
-                  this.endModeGame();
+                  this.startNextModeRound();
                   break;
           }
       }
@@ -173,16 +340,105 @@ class NetworkManager {
       const store = useGameStore.getState();
       const duration = store.settings.discussionDuration * 1000;
       const timerEnd = Date.now() + duration;
+      const round = Number(this.hostPrivateState.round ?? 1);
 
       this.broadcast({
           type: 'PHASE_CHANGE',
           senderId: store.myId,
-          payload: { phase: 'day_discussion', timerEnd }
+          payload: { phase: 'day_discussion', timerEnd, payload: { round } }
       });
       store.setPhase('day_discussion');
       store.setTimerEnd(timerEnd);
+      store.setRound(round);
       this.startBotChatLoop('day');
       setTimeout(() => this.handlePhaseTimeout('day_discussion'), duration);
+  }
+
+  /**
+   * Advances a non-classic mode into its next discussion round.
+   *
+   * Called when an elimination reveal finishes. The game ends here only if the
+   * mode's own win condition is satisfied, the table is too small to keep
+   * playing, or the round cap is hit — otherwise play loops onward.
+   */
+  private startNextModeRound() {
+      const store = useGameStore.getState();
+      const mode = getMode(this.activeModeId);
+
+      // The mode decides whether anybody has actually won yet.
+      const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
+      if (winResult) {
+          this.broadcastModeGameOver(winResult.winnerId, winResult.winnerLabel, winResult.description);
+          return;
+      }
+
+      // Too few players left to hold a meaningful vote — the hidden team has
+      // survived to the end, so they take it.
+      const aliveCount = Object.values(store.players).filter(p => p.isAlive).length;
+      if (aliveCount < 3) {
+          const { winnerId, winnerLabel } = this.hiddenTeamIdentity();
+          this.broadcastModeGameOver(
+              winnerId,
+              winnerLabel,
+              'Too few players remain to keep voting — they survived to the end.'
+          );
+          return;
+      }
+
+      // Round cap: a table that keeps skipping its votes should not loop
+      // forever. Surviving the cap counts as a win for the hidden team.
+      const round = Number(this.hostPrivateState.round ?? 1);
+      const maxRounds = Number(this.hostPrivateState.maxRounds ?? 12);
+      if (round >= maxRounds) {
+          const { winnerId, winnerLabel } = this.hiddenTeamIdentity();
+          this.broadcastModeGameOver(
+              winnerId,
+              winnerLabel,
+              `Survived all ${maxRounds} rounds without being caught.`
+          );
+          return;
+      }
+
+      this.hostPrivateState = { ...this.hostPrivateState, round: round + 1 };
+      this.broadcastSystemMessage(`── Round ${round + 1} ── Discussion begins.`);
+      this.startModeDayPhase();
+  }
+
+  /** The winning id/label for the hidden team of the active mode. */
+  private hiddenTeamIdentity(): { winnerId: string; winnerLabel: string } {
+      switch (this.activeModeId) {
+          case 'word_impostor': return { winnerId: 'impostor', winnerLabel: 'The Impostor' };
+          case 'undercover':    return { winnerId: 'undercover', winnerLabel: 'The Undercoverts' };
+          case 'frequency_spy': return { winnerId: 'frequency_spy', winnerLabel: 'The Spy' };
+          default:              return { winnerId: 'mafia', winnerLabel: 'The Mafia' };
+      }
+  }
+
+  /** Drops any settled impostor-guess bookkeeping so a later round starts clean. */
+  private clearGuessState() {
+      const next = { ...this.hostPrivateState };
+      delete next.impostorGuess;
+      delete next.guessCorrect;
+      delete next.guessResolved;
+      this.hostPrivateState = next;
+  }
+
+  /** Shows the elimination reveal, then loops into the next round. */
+  private enterEliminationReveal(eliminatedId: string | null, resultText: string) {
+      const store = useGameStore.getState();
+      const eliminationResult = { eliminatedId, resultText };
+      const duration = 6000;
+      const timerEnd = Date.now() + duration;
+
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'elimination_reveal', payload: { eliminationResult }, timerEnd }
+      });
+      store.setPhase('elimination_reveal');
+      store.setEliminationResult(eliminationResult);
+      store.setTimerEnd(timerEnd);
+      setTimeout(() => this.handlePhaseTimeout('elimination_reveal'), duration);
   }
 
   private resolveModeVotingPhase() {
@@ -230,7 +486,20 @@ class NetworkManager {
           this.broadcastSystemMessage(resultText);
       }
 
-      // Check mode win condition
+      // Word Impostor: an eliminated Impostor is owed a final guess at the word
+      // BEFORE any win is awarded, so this branch runs ahead of the win check.
+      if (this.activeModeId === 'word_impostor' && eliminatedId) {
+          const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+          if (impostorIds.includes(eliminatedId)) {
+              this.clearGuessState();
+              this.hostPrivateState = { ...this.hostPrivateState, guessResolved: false };
+              this.startImpostorGuessPhase(eliminatedId);
+              return;
+          }
+      }
+
+      // Has anybody actually won? Voting out an innocent is NOT a loss — it
+      // just costs the town a player and the game plays on.
       const mode = getMode(this.activeModeId);
       const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
 
@@ -239,36 +508,8 @@ class NetworkManager {
           return;
       }
 
-      // Word Impostor: if impostor was voted out → impostor_guess phase
-      if (this.activeModeId === 'word_impostor' && eliminatedId) {
-          const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
-          if (impostorIds.includes(eliminatedId)) {
-              // Impostor voted out — give them a guess
-              this.startImpostorGuessPhase(eliminatedId);
-              return;
-          } else {
-              // Innocent eliminated — impostor wins
-              const secretWord = String(this.hostPrivateState.secretWord ?? '');
-              this.broadcastSystemMessage(`An innocent player was eliminated! The secret word was "${secretWord}". The Impostor wins!`);
-              this.broadcastModeGameOver('impostor', 'The Impostor', 'An innocent player was eliminated.');
-              return;
-          }
-      }
-
-      // Default: show elimination_reveal then end
-      const eliminationResult = { eliminatedId, resultText };
-      const duration = 6000;
-      const timerEnd = Date.now() + duration;
-
-      this.broadcast({
-          type: 'PHASE_CHANGE',
-          senderId: store.myId,
-          payload: { phase: 'elimination_reveal', payload: { eliminationResult }, timerEnd }
-      });
-      store.setPhase('elimination_reveal');
-      store.setEliminationResult(eliminationResult);
-      store.setTimerEnd(timerEnd);
-      setTimeout(() => this.handlePhaseTimeout('elimination_reveal'), duration);
+      // Nobody won — reveal the elimination, then loop into the next round.
+      this.enterEliminationReveal(eliminatedId, resultText);
   }
 
   private startImpostorGuessPhase(impostorId: string) {
@@ -297,18 +538,34 @@ class NetworkManager {
 
   resolveModeImpostorGuess() {
       const store = useGameStore.getState();
-      // If timer expired without a guess, treat as wrong
+      // Timer expired without a guess — treat it as a wrong one.
       if (this.hostPrivateState.impostorGuess === undefined) {
           this.hostPrivateState = { ...this.hostPrivateState, impostorGuess: '', guessCorrect: false };
       }
 
       const correct = Boolean(this.hostPrivateState.guessCorrect);
       const secretWord = String(this.hostPrivateState.secretWord ?? '');
-      const guess = String(this.hostPrivateState.impostorGuess ?? '(no guess)');
+      const guess = String(this.hostPrivateState.impostorGuess ?? '');
+      const guessedId = store.impostorGuessPlayerId;
+      const guesserName = (guessedId && store.players[guessedId]?.name) || 'The Impostor';
 
-      const resultText = correct
-          ? `The Impostor guessed correctly! The word was "${secretWord}". Impostor wins!`
-          : `Time's up! The Impostor guessed "${guess}" but the word was "${secretWord}". Crewmates win!`;
+      // Mark the guess settled so the mode's win check can now award the
+      // Crewmates their win if this was the last Impostor standing.
+      this.hostPrivateState = { ...this.hostPrivateState, guessResolved: true };
+
+      // Are there Impostors still in play after this one?
+      const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+      const impostorsLeft = impostorIds.filter(id => store.players[id]?.isAlive).length;
+
+      let resultText: string;
+      if (correct) {
+          resultText = `${guesserName} guessed correctly! The word was "${secretWord}". The Impostors win!`;
+      } else {
+          const attempt = guess ? `guessed "${guess}"` : 'ran out of time';
+          resultText = impostorsLeft > 0
+              ? `${guesserName} ${attempt} — wrong! But another Impostor is still among you.`
+              : `${guesserName} ${attempt} but the word was "${secretWord}".`;
+      }
 
       this.broadcastSystemMessage(resultText);
 
@@ -325,9 +582,22 @@ class NetworkManager {
 
       if (correct) {
           this.broadcastModeGameOver('impostor', 'The Impostor', `Guessed the secret word "${secretWord}"!`);
-      } else {
-          this.broadcastModeGameOver('crewmates', 'The Crewmates', `The Impostor failed to guess the word.`);
+          return;
       }
+
+      // A wrong guess only ends the game if no Impostor is left to carry on.
+      const mode = getMode(this.activeModeId);
+      const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
+      if (winResult) {
+          this.broadcastModeGameOver(winResult.winnerId, winResult.winnerLabel, winResult.description);
+          return;
+      }
+
+      // Impostors remain — clear the settled guess and play on.
+      this.clearGuessState();
+      store.setWordGuessResult(null);
+      store.setImpostorGuessPlayerId(null);
+      this.enterEliminationReveal(guessedId, resultText);
   }
 
   /** Public: called by ImpostorGuess UI component */
@@ -368,18 +638,6 @@ class NetworkManager {
       this.resolveModeImpostorGuess();
   }
 
-  private endModeGame() {
-      const store = useGameStore.getState();
-      const mode = getMode(this.activeModeId);
-      const winResult = mode.checkWinCondition(store.players, this.hostPrivateState);
-
-      if (winResult) {
-          this.broadcastModeGameOver(winResult.winnerId, winResult.winnerLabel, winResult.description);
-      } else {
-          this.broadcastModeGameOver('draw', 'Nobody', 'The game ended without a winner.');
-      }
-  }
-
   private broadcastModeGameOver(winnerId: string, winnerLabel: string, description: string) {
       const store = useGameStore.getState();
       this.broadcastSystemMessage(`Game Over — ${winnerLabel} win! ${description}`);
@@ -411,6 +669,7 @@ class NetworkManager {
   }
 
   disconnect() {
+    this.stopStateSync();
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
@@ -433,6 +692,10 @@ class NetworkManager {
             isOnline: true,
             isAlive: true,
         });
+        // The room code is this id for the room's whole life, even if the
+        // host changes later.
+        this.roomId = myId;
+        this.startStateSync();
     });
   }
 
@@ -459,6 +722,9 @@ class NetworkManager {
   // Join a game
   joinGame(hostId: string, playerName: string) {
     if (!this.socket) return;
+    // What the player typed is the room code, which may no longer be the id
+    // of whoever is actually hosting.
+    this.roomId = hostId;
     this.socket.emit('join_game', { hostId, playerName });
   }
 
@@ -477,14 +743,7 @@ class NetworkManager {
     this.activeModeId = store.gameMode;
 
     // Reset game state
-    this.nightActions = {
-        mafiaVote: {},
-        doctorTargets: {},
-        detectiveTargets: {},
-        vigilanteTargets: {},
-        serialKillerTargets: {},
-        bodyguardTargets: {}
-    };
+    this.resetNightActions();
     this.dayVotes = {};
     this.lastWills = {};
     this.hostPrivateState = {};
@@ -520,11 +779,29 @@ class NetworkManager {
           store.setAllRoles(roles);
           this.modeRoles = roles as Record<PlayerId, string>;
 
+          // Reset per-game ability bookkeeping.
+          this.abilityUses = {};
+          this.executionerTargets = {};
+          this.neutralWinners = new Set();
+
+          // Give each Executioner a mark: a Town player, since getting a
+          // fellow evil lynched would be no challenge at all.
+          const townIds = playerIds.filter(id => isTownRole(roles[id]));
+          playerIds
+              .filter(id => roles[id] === 'executioner')
+              .forEach(execId => {
+                  const candidates = townIds.filter(id => id !== execId);
+                  if (candidates.length === 0) return;
+                  this.executionerTargets[execId] =
+                      candidates[Math.floor(Math.random() * candidates.length)];
+              });
+
           players.forEach(player => {
               if (player.isBot) return;
               const role = roles[player.id];
-              const mafiaPartners = role === 'mafia'
-                  ? Object.entries(roles).filter(([_, r]) => r === 'mafia').map(([id]) => id)
+              // The Framer is Mafia, so they see and are seen by their partners.
+              const mafiaPartners = isMafiaRole(role)
+                  ? Object.entries(roles).filter(([_, r]) => isMafiaRole(r)).map(([id]) => id)
                   : undefined;
 
               if (player.id === store.myId) {
@@ -566,8 +843,14 @@ class NetworkManager {
           const { perPlayerPayloads, hostPrivateState } = mode.buildGameStartData(
               playerIds, modeRoles, store.settings
           );
-          // Store private state on Host — NEVER broadcast
-          this.hostPrivateState = hostPrivateState;
+          // Store private state on Host — NEVER broadcast.
+          // `round` drives the multi-round loop; `maxRounds` caps a table that
+          // keeps skipping its votes so a game can never loop forever.
+          this.hostPrivateState = {
+              ...hostPrivateState,
+              round: 1,
+              maxRounds: playerIds.length + 3,
+          };
 
           players.forEach(player => {
               if (player.isBot) return;
@@ -591,6 +874,9 @@ class NetworkManager {
                       assignedNumber: payload.assignedNumber as number | null,
                       commonWord: payload.commonWord as string | null,
                   });
+                  if (payload.tasks) {
+                      store.setDeadlock({ myTasks: payload.tasks as string[], myTasksDone: [] });
+                  }
               } else {
                   // Send MODE_ASSIGN individually — each player gets only their payload
                   this.sendMessage(player.id, {
@@ -603,6 +889,7 @@ class NetworkManager {
                           assignedCategory: payload.assignedCategory as string | null,
                           assignedNumber: payload.assignedNumber as number | null,
                           commonWord: payload.commonWord as string | null,
+                          tasks: (payload.tasks as string[] | undefined),
                       }
                   });
               }
@@ -620,6 +907,16 @@ class NetworkManager {
       };
       this.broadcast(phaseMsg);
       store.setPhase('role_assignment');
+
+      // Tell each Executioner who they need lynched. Sent after the phase
+      // change so it lands while they are looking at their role card.
+      Object.entries(this.executionerTargets).forEach(([execId, markId]) => {
+          const markName = store.players[markId]?.name ?? 'someone';
+          this.sendPrivateSystemMessage(
+              execId,
+              `Your mark is ${markName}. Get them voted out by the Town and you win.`
+          );
+      });
       store.setTimerEnd(timerEnd);
 
       setTimeout(() => this.handlePhaseTimeout('role_assignment'), duration);
@@ -629,14 +926,15 @@ class NetworkManager {
       const store = useGameStore.getState();
       
       // Clear previous night actions
-      this.nightActions = { 
-          mafiaVote: {}, 
-          doctorTargets: {}, 
-          detectiveTargets: {}, 
-          vigilanteTargets: {}, 
-          serialKillerTargets: {},
-          bodyguardTargets: {}
-      };
+      this.resetNightActions();
+
+      // Fresh task board each night, with the quota published up front so the
+      // progress bar is meaningful before anyone has finished anything.
+      this.taskCompletions = {};
+      store.resetTasks();
+      if (store.settings.nightTasksEnabled !== false) {
+          this.broadcastTaskProgress();
+      }
 
       const duration = store.settings.nightDuration * 1000;
       const timerEnd = Date.now() + duration;
@@ -802,22 +1100,22 @@ class NetworkManager {
 
               const action = await getBotNightAction(bot.id, role, store.players, allRoles);
               if (action) {
-                  this.handleNightAction(bot.id, action.action, action.targetId);
+                  this.handleNightAction(bot.id, action.action, action.targetId, action.secondTargetId);
               }
           }, delay);
       });
   }
 
-  sendNightAction(action: 'KILL' | 'SAVE' | 'INVESTIGATE' | 'PROTECT', targetId: string) {
+  sendNightAction(action: NightActionType, targetId: string, secondTargetId?: string) {
       const store = useGameStore.getState();
       const msg: NetworkMessage = {
           type: 'NIGHT_ACTION',
           senderId: store.myId,
-          payload: { action, targetId }
+          payload: { action, targetId, secondTargetId }
       };
 
       if (store.myId === store.hostId) {
-          this.handleNightAction(store.myId, action, targetId);
+          this.handleNightAction(store.myId, action, targetId, secondTargetId);
       } else {
           if (store.hostId) this.sendMessage(store.hostId, msg);
       }
@@ -861,161 +1159,95 @@ class NetworkManager {
     }
   }
 
+  /**
+   * Runs the night and applies its outcome.
+   *
+   * The rules themselves live in src/lib/nightResolution.ts as a pure
+   * function, so ordering (roleblock before action, frame before
+   * investigation, protection before attack) can be tested directly. This
+   * method only gathers state, calls it, and broadcasts the result.
+   */
   private resolveNightPhase() {
     const store = useGameStore.getState();
-    
-    // 1. Tally votes/actions
-    const mafiaVotes = this.nightActions.mafiaVote;
-    const doctorSaves = Object.values(this.nightActions.doctorTargets);
-    const bodyguardProtects = Object.values(this.nightActions.bodyguardTargets);
-    const detectiveChecks = this.nightActions.detectiveTargets;
-    const vigilanteKills = this.nightActions.vigilanteTargets;
-    const serialKillerKills = this.nightActions.serialKillerTargets;
+    const roles = store.allRoles || {};
 
-    // Calculate Mafia targets (Individual Kills)
-    // Each mafia member's vote counts as a separate attack
-    const mafiaTargets = new Set<string>(Object.values(mafiaVotes));
-
-    const deaths: string[] = [];
-    const savedPlayers: string[] = [];
-
-    // Resolve Mafia Kills
-    mafiaTargets.forEach(target => {
-        const isSaved = doctorSaves.includes(target) || bodyguardProtects.includes(target);
-        if (isSaved) {
-            if (!savedPlayers.includes(target)) {
-                savedPlayers.push(target);
-                this.sendPrivateSystemMessage(target, "You were attacked but saved by a Doctor or Bodyguard!");
-            }
-        } else {
-            if (!deaths.includes(target)) {
-                deaths.push(target);
-                
-                // Find who voted for this target
-                // const killers = Object.entries(mafiaVotes)
-                //    .filter(([_, t]) => t === target)
-                //    .map(([voterId]) => store.players[voterId]?.name || 'Unknown')
-                //    .join(', ');
-                    
-                this.sendDeathInfo(target, `You were killed by the Mafia.`);
-            }
-        }
+    const names: Record<string, string> = {};
+    const alive = new Set<string>();
+    Object.values(store.players).forEach(p => {
+        names[p.id] = p.name;
+        if (p.isAlive) alive.add(p.id);
     });
 
-    // Resolve Vigilante Kills
-    Object.entries(vigilanteKills).forEach(([vigilanteId, targetId]) => {
-        // Vigilante Guilt: Dies if they shoot a Town member
-        const targetRole = (store.allRoles || {})[targetId];
-        const isTown = ['civilian', 'doctor', 'detective', 'bodyguard', 'medium', 'mayor', 'vigilante'].includes(targetRole);
-
-        if (isTown) {
-            // Target is NOT killed (unless someone else killed them), Vigilante dies instead
-            if (!deaths.includes(vigilanteId)) {
-                deaths.push(vigilanteId);
-                this.sendDeathInfo(vigilanteId, "You died from guilt after trying to kill a Town member.");
-                // Also notify the vigilante privately
-                this.sendPrivateSystemMessage(vigilanteId, "You aimed at a Town member! Overcome with guilt, you took your own life.");
-            }
-        } else {
-            // Target is bad (Mafia/SK/Jester/etc), kill them
-            const isSaved = doctorSaves.includes(targetId) || bodyguardProtects.includes(targetId);
-            if (isSaved) {
-                 savedPlayers.push(targetId);
-                 this.sendPrivateSystemMessage(targetId, "You were attacked but saved by a Doctor or Bodyguard!");
-            } else {
-                if (!deaths.includes(targetId)) {
-                    deaths.push(targetId);
-                    const killerName = store.players[vigilanteId]?.name || 'Unknown';
-                    this.sendDeathInfo(targetId, `You were killed by a Vigilante (${killerName}).`);
-                }
-            }
-        }
+    const outcome = resolveNight({
+        names,
+        alive,
+        roles,
+        actions: this.nightActions,
+        charges: this.abilityUses,
     });
 
-    // Resolve Serial Killer Kills
-    Object.entries(serialKillerKills).forEach(([skId, targetId]) => {
-        const isSaved = doctorSaves.includes(targetId) || bodyguardProtects.includes(targetId);
-        // SK usually penetrates doctor, but let's say doctor saves for now or SK is powerful.
-        // Let's stick to standard: Doctor saves.
-        if (isSaved) {
-             savedPlayers.push(targetId);
-             this.sendPrivateSystemMessage(targetId, "You were attacked but saved by a Doctor or Bodyguard!");
-        } else {
-            if (!deaths.includes(targetId)) {
-                deaths.push(targetId);
-                const killerName = store.players[skId]?.name || 'Unknown';
-                this.sendDeathInfo(targetId, `You were killed by a Serial Killer (${killerName}).`);
-            }
-        }
+    this.abilityUses = outcome.charges;
+
+    outcome.privateMessages.forEach(({ playerId, content }) => {
+        this.sendPrivateSystemMessage(playerId, content);
     });
 
-    // Resolve Detective Checks
-    Object.entries(detectiveChecks).forEach(([detectiveId, targetId]) => {
-        const targetRole = (store.allRoles || {})[targetId];
-        const isSuspicious = targetRole === 'mafia' || targetRole === 'serial_killer'; // Godfather?
-        const result = isSuspicious ? 'suspicious' : 'innocent';
-        
-        const msg: NetworkMessage = {
-            type: 'CHAT_MESSAGE',
-            senderId: store.myId,
-            payload: {
-                id: Math.random().toString(36).substring(2, 10),
-                senderId: 'SYSTEM',
-                senderName: 'System',
-                content: `Your investigation of ${store.players[targetId]?.name} returned: ${result}.`,
-                timestamp: Date.now(),
-                isSystem: true,
-                channel: 'global'
-            }
-        };
-        if (detectiveId === store.myId) {
-            store.addMessage(msg.payload);
-        } else {
-            this.sendMessage(detectiveId, msg);
-        }
-    });
-
-    // Process Deaths
-    deaths.forEach(id => {
-        const role = (store.allRoles || {})[id];
-        const lastWill = this.lastWills[id];
-        store.updatePlayer(id, { isAlive: false, lastWill, role });
+    outcome.deaths.forEach(({ playerId, reason }) => {
+        this.sendDeathInfo(playerId, reason);
+        store.updatePlayer(playerId, {
+            isAlive: false,
+            lastWill: this.lastWills[playerId],
+            role: roles[playerId],
+        });
     });
 
     this.broadcastPlayerUpdate();
 
-    // Prepare result message
-    let resultText = '';
-    if (deaths.length === 0) {
-        resultText = 'The night was quiet. No one died.';
+    let resultText: string;
+    if (outcome.deaths.length === 0) {
+        resultText = outcome.saved.length > 0
+            ? 'The night was violent, but everyone pulled through.'
+            : 'The night was quiet. No one died.';
     } else {
-        const deadNames = deaths.map(id => store.players[id]?.name).join(', ');
+        const deadNames = outcome.deaths
+            .map(d => store.players[d.playerId]?.name)
+            .filter(Boolean)
+            .join(', ');
         resultText = `Tragedy struck! ${deadNames} found dead.`;
     }
 
-    // Check Win Condition
     if (this.checkWinCondition()) return;
 
+    // The town's night work buys them a little more time to talk.
+    const completed = Object.values(this.taskCompletions).reduce((a, b) => a + b, 0);
+    const earnedBonus =
+        store.settings.nightTasksEnabled !== false && completed >= this.taskQuota();
+    if (earnedBonus) {
+        this.broadcastSystemMessage(
+            `The town got through its work overnight. Discussion runs ${NetworkManager.TASK_BONUS_SECONDS} seconds longer today.`
+        );
+    }
+
     // Transition to Day Discussion
-    const duration = store.settings.discussionDuration * 1000;
+    const duration =
+        (store.settings.discussionDuration + (earnedBonus ? NetworkManager.TASK_BONUS_SECONDS : 0)) * 1000;
     const timerEnd = Date.now() + duration;
 
-    const msg: NetworkMessage = {
+    this.broadcast({
         type: 'PHASE_CHANGE',
         senderId: store.myId,
-        payload: { 
-            phase: 'day_discussion', 
+        payload: {
+            phase: 'day_discussion',
             timerEnd,
             payload: { lastNightResult: resultText }
         }
-    };
-    this.broadcast(msg);
+    });
     this.startBotChatLoop('day');
     store.setPhase('day_discussion');
     store.setTimerEnd(timerEnd);
     store.setLastNightResult(resultText);
 
-    if (deaths.length > 0) {
+    if (outcome.deaths.length > 0) {
         soundManager.playKillSound(); // Host plays too
     }
 
@@ -1064,10 +1296,29 @@ class NetworkManager {
               if (!store.players[bot.id]?.isAlive) return;
 
               const modeRole = this.modeRoles[bot.id] || '';
-              const targetId = await getBotDayVote(bot.id, store.players, chatHistory, modeRole);
+              const targetId = await getBotDayVote(bot.id, store.players, chatHistory, modeRole, store.allRoles || undefined);
               this.processVote(bot.id, targetId);
           }, delay);
       });
+  }
+
+  /**
+   * Applies a settings change and, when hosting, pushes it to everyone in the
+   * lobby. Settings used to travel only on WELCOME and GAME_START, so anything
+   * the host changed after players joined stayed invisible to them until the
+   * game started — too late for something like a voice room link.
+   */
+  updateSettings(settings: GameSettings) {
+      const store = useGameStore.getState();
+      store.setSettings(settings);
+
+      if (store.myId === store.hostId) {
+          this.broadcast({
+              type: 'SETTINGS_UPDATE',
+              senderId: store.myId,
+              payload: { settings }
+          });
+      }
   }
 
   sendVote(targetId: string | null) {
@@ -1107,126 +1358,613 @@ class NetworkManager {
       store.setVoteCounts(voteCounts);
   }
 
+  /**
+   * Tallies the day vote.
+   *
+   * With trials enabled the leading candidate is only *nominated* — they get a
+   * defense and a jury verdict before anything happens to them. With trials
+   * off, the old behaviour stands and the vote eliminates directly.
+   */
   private resolveVotingPhase() {
       const store = useGameStore.getState();
-      
-      // Calculate results
+
       const voteCounts: Record<string, number> = {};
       let skipVotes = 0;
-      
-      // Count explicit votes
+
       Object.values(this.dayVotes).forEach(tid => {
-          if (tid) {
-              voteCounts[tid] = (voteCounts[tid] || 0) + 1;
-          } else {
-              skipVotes++; // Explicit skip
-          }
+          if (tid) voteCounts[tid] = (voteCounts[tid] || 0) + 1;
+          else skipVotes++;
       });
 
-      // Count implicit skips (alive players who didn't vote)
+      // Players who never voted count as skips.
       const alivePlayers = Object.values(store.players).filter(p => p.isAlive);
-      const totalVotes = Object.keys(this.dayVotes).length;
-      const missingVotes = alivePlayers.length - totalVotes;
-      skipVotes += missingVotes;
+      skipVotes += alivePlayers.length - Object.keys(this.dayVotes).length;
 
-      // Find winner
-      let eliminatedId: string | null = null;
       let maxVotes = 0;
-      let winners: string[] = []; // Can include 'SKIP'
-
-      // Check candidates
+      let winners: string[] = [];
       Object.entries(voteCounts).forEach(([id, count]) => {
-          if (count > maxVotes) {
-              maxVotes = count;
-              winners = [id];
-          } else if (count === maxVotes) {
-              winners.push(id);
-          }
+          if (count > maxVotes) { maxVotes = count; winners = [id]; }
+          else if (count === maxVotes) { winners.push(id); }
       });
 
-      // Check SKIP
-      if (skipVotes > maxVotes) {
-          maxVotes = skipVotes;
-          winners = ['SKIP'];
-      } else if (skipVotes === maxVotes) {
-          winners.push('SKIP');
-      }
+      if (skipVotes > maxVotes) { maxVotes = skipVotes; winners = ['SKIP']; }
+      else if (skipVotes === maxVotes) { winners.push('SKIP'); }
 
-      let resultText = '';
+      const nominated = winners.length === 1 && winners[0] !== 'SKIP' ? winners[0] : null;
 
-      // Logic: If tie or SKIP wins, no one dies.
-      // If single winner and NOT SKIP, they die.
-      if (winners.length === 1 && winners[0] !== 'SKIP') {
-          eliminatedId = winners[0];
-          const name = store.players[eliminatedId].name;
-          const role = (store.allRoles || {})[eliminatedId];
-          const lastWill = this.lastWills[eliminatedId];
-          resultText = `The town has decided to eliminate ${name}.`; 
-          
-          store.updatePlayer(eliminatedId, { isAlive: false, lastWill, role });
-          this.broadcastPlayerUpdate();
-
-          // Send specific death reason
-          this.sendDeathInfo(eliminatedId, "You were eliminated");
-
+      if (!nominated) {
+          const resultText = winners.includes('SKIP') && winners.length === 1
+              ? `The town decided to skip voting with ${maxVotes} votes.`
+              : `The vote ended in a tie or skip majority (${maxVotes} votes). No one was voted out.`;
           this.broadcastSystemMessage(resultText);
-          if (lastWill) {
-            this.broadcastSystemMessage(`Last Will of ${name}: "${lastWill}"`);
-          }
-
-          // Check Jester Win
-          if (role === 'jester') {
-              const msg: NetworkMessage = {
-                  type: 'GAME_OVER',
-                  senderId: store.myId,
-                  payload: {
-                      winner: 'jester',
-                      roles: store.allRoles || {}
-                  }
-              };
-              this.broadcast(msg);
-              store.setGameOver('jester', store.allRoles || {});
-              return;
-          }
-      } else {
-          // Tie or Skip wins
-      if (winners.includes('SKIP') && winners.length === 1) {
-          resultText = `The town decided to skip voting with ${maxVotes} votes.`;
-      } else {
-          resultText = `The vote ended in a tie or skip majority (${maxVotes} votes). No one was voted out.`;
+          this.enterClassicReveal(null, resultText);
+          return;
       }
-      this.broadcastSystemMessage(resultText);
+
+      if (store.settings.trialEnabled !== false) {
+          this.startTrialDefense(nominated);
+          return;
+      }
+
+      this.executePlayer(nominated, 'The town has decided to eliminate');
   }
 
-  // Inject elimination info into chat for context
-  if (eliminatedId) {
-    const role = store.allRoles?.[eliminatedId];
-    if (role) {
-      // We don't broadcast this to players (they see the reveal screen), 
-      // but we add it to the message store so bots "remember" it in their chat history context.
-      // Actually, let's just broadcast a system message about the role reveal so everyone has it in chat log.
-      const revealMsg = `${store.players[eliminatedId].name} was ${role}.`;
-      this.broadcastSystemMessage(revealMsg);
-    }
-  }
+  // ── Trial ───────────────────────────────────────────────────────────────────
 
-  if (this.checkWinCondition()) return;
-
-      // Start Elimination Reveal Phase
-      const eliminationResult = { eliminatedId, resultText };
-      const duration = 8000; // 8 seconds for reveal animation
+  /** The accused gets the floor before the jury decides. */
+  private startTrialDefense(accusedId: string) {
+      const store = useGameStore.getState();
+      const duration = (store.settings.defenseDuration ?? 30) * 1000;
       const timerEnd = Date.now() + duration;
+      const name = store.players[accusedId]?.name ?? 'The accused';
 
-      const msg: NetworkMessage = {
+      this.trialVerdicts = {};
+      this.broadcastSystemMessage(`${name} stands accused. They have ${Math.round(duration / 1000)} seconds to defend themselves.`);
+
+      this.broadcast({
           type: 'PHASE_CHANGE',
           senderId: store.myId,
-          payload: { 
-              phase: 'elimination_reveal',
-              payload: { eliminationResult },
-              timerEnd
-          }
+          payload: { phase: 'trial_defense', timerEnd, payload: { accusedId } }
+      });
+      store.setPhase('trial_defense');
+      store.setAccused(accusedId);
+      store.setMyVerdict(null);
+      store.setVerdictCounts({ guilty: 0, innocent: 0, cast: 0, total: 0 });
+      store.setTimerEnd(timerEnd);
+
+      setTimeout(() => this.handlePhaseTimeout('trial_defense'), duration);
+  }
+
+  /** Jurors return guilty / innocent / abstain. */
+  private startTrialVerdict() {
+      const store = useGameStore.getState();
+      const accusedId = store.accusedId;
+      if (!accusedId) { this.startNightPhase(); return; }
+
+      const duration = (store.settings.verdictDuration ?? 30) * 1000;
+      const timerEnd = Date.now() + duration;
+
+      this.broadcastSystemMessage('The defense rests. Jurors, return your verdict.');
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'trial_verdict', timerEnd, payload: { accusedId } }
+      });
+      store.setPhase('trial_verdict');
+      store.setTimerEnd(timerEnd);
+
+      this.handleBotVerdicts(accusedId);
+      setTimeout(() => this.handlePhaseTimeout('trial_verdict'), duration);
+  }
+
+  /** Public: called by the verdict UI. */
+  // ── Deadlock (station mode) ─────────────────────────────────────────────────
+
+  /** Reads a JSON blob out of hostPrivateState, which stores no nested data. */
+  private dlRead<T>(key: string, fallback: T): T {
+      try {
+          const raw = this.hostPrivateState[key];
+          return typeof raw === 'string' ? JSON.parse(raw) as T : fallback;
+      } catch {
+          return fallback;
+      }
+  }
+
+  private dlWrite(key: string, value: unknown) {
+      this.hostPrivateState = { ...this.hostPrivateState, [key]: JSON.stringify(value) };
+  }
+
+  /** Publishes the station's public state: who is where, and what is lying around. */
+  private broadcastDeadlockState() {
+      const store = useGameStore.getState();
+      const payload = {
+          positions: (this.hostPrivateState.positions as Record<string, string>) ?? {},
+          bodies: this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []),
+          tasksCompleted: Number(this.hostPrivateState.tasksCompleted ?? 0),
+          tasksTotal: Number(this.hostPrivateState.tasksTotal ?? 0),
       };
-      this.broadcast(msg);
+      this.broadcast({ type: 'DEADLOCK_STATE', senderId: store.myId, payload });
+      store.setDeadlock(payload);
+  }
+
+  /** Public: the player clicked an adjacent room. */
+  sendDeadlockMove(roomId: string) {
+      this.sendDeadlockAction('DL_MOVE', { roomId });
+  }
+
+  /** Public: the impostor clicked kill on someone in their room. */
+  sendDeadlockKill(targetId: string) {
+      // Start the cooldown locally so the button is honest immediately. The
+      // host enforces it regardless; this only keeps the UI from lying during
+      // the round trip.
+      useGameStore.getState().setDeadlock({
+          killReadyAt: Date.now() + KILL_COOLDOWN_SECONDS * 1000,
+      });
+      this.sendDeadlockAction('DL_KILL', { targetId });
+  }
+
+  /** Public: a task minigame in the current room was completed. */
+  sendDeadlockTask(roomId: string) {
+      this.sendDeadlockAction('DL_TASK', { roomId });
+  }
+
+  /** Public: report a body, or call an emergency meeting. */
+  sendDeadlockMeeting(bodyId: string | null) {
+      // Emergency meetings are one per player for the whole game; reflect that
+      // in the UI straight away. The host is still the authority.
+      if (bodyId === null) {
+          useGameStore.getState().setDeadlock({ emergencyUsed: true });
+      }
+      this.sendDeadlockAction('DL_MEETING', { bodyId });
+  }
+
+  private sendDeadlockAction(actionType: string, actionPayload: Record<string, string | number | boolean | null>) {
+      const store = useGameStore.getState();
+      if (store.myId === store.hostId) {
+          this.handleDeadlockAction(store.myId, actionType, actionPayload);
+      } else if (store.hostId) {
+          this.sendMessage(store.hostId, {
+              type: 'MODE_ACTION',
+              senderId: store.myId,
+              payload: { actionType, actionPayload }
+          });
+      }
+  }
+
+  /**
+   * Host-authoritative handling for every station action.
+   *
+   * Each case re-derives what the actor is allowed to do from the host's own
+   * state — adjacency, same-room targets, cooldowns — rather than trusting the
+   * message. A client cannot teleport, kill across the station, or complete a
+   * task it was never given.
+   */
+  private handleDeadlockAction(
+      senderId: string,
+      actionType: string,
+      payload: Record<string, string | number | boolean | null>
+  ) {
+      const store = useGameStore.getState();
+      if (this.activeModeId !== 'deadlock') return;
+      if (!store.players[senderId]?.isAlive) return;
+
+      const positions = { ...((this.hostPrivateState.positions as Record<string, string>) ?? {}) };
+
+      switch (actionType) {
+          case 'DL_MOVE': {
+              if (store.phase !== 'roaming') return;
+              const to = String(payload.roomId ?? '');
+              const from = positions[senderId] ?? SPAWN_ROOM;
+              // Adjacency is enforced here, not in the UI.
+              if (!isAdjacent(from, to)) return;
+
+              positions[senderId] = to;
+              this.hostPrivateState = { ...this.hostPrivateState, positions };
+              this.broadcastDeadlockState();
+              return;
+          }
+
+          case 'DL_KILL': {
+              if (store.phase !== 'roaming') return;
+              const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+              if (!impostorIds.includes(senderId)) return;
+
+              const targetId = String(payload.targetId ?? '');
+              const target = store.players[targetId];
+              if (!target?.isAlive) return;
+              // No killing your own side, and only in your own room.
+              if (impostorIds.includes(targetId)) return;
+              if (positions[targetId] !== positions[senderId]) return;
+
+              const killReady = this.dlRead<Record<string, number>>('killReadyJson', {});
+              if ((killReady[senderId] ?? 0) > Date.now()) return;
+
+              killReady[senderId] = Date.now() + KILL_COOLDOWN_SECONDS * 1000;
+              this.dlWrite('killReadyJson', killReady);
+
+              store.updatePlayer(targetId, { isAlive: false });
+              this.sendDeathInfo(targetId, 'Something found you alone.');
+              this.broadcastPlayerUpdate();
+
+              const bodies = this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []);
+              bodies.push({ playerId: targetId, roomId: positions[targetId] ?? SPAWN_ROOM });
+              this.dlWrite('bodiesJson', bodies);
+
+              this.sendPrivateSystemMessage(senderId, `You killed ${target.name}. Cooldown ${KILL_COOLDOWN_SECONDS}s.`);
+              this.broadcastDeadlockState();
+              this.checkDeadlockWin();
+              return;
+          }
+
+          case 'DL_TASK': {
+              if (store.phase !== 'roaming') return;
+              const roomId = String(payload.roomId ?? '');
+              if (positions[senderId] !== roomId) return;
+
+              const assignments = this.dlRead<Record<string, string[]>>('taskAssignmentsJson', {});
+              const done = this.dlRead<Record<string, string[]>>('tasksDoneJson', {});
+              const mine = assignments[senderId] ?? [];
+              const minesDone = done[senderId] ?? [];
+
+              // Must be one of your own tasks, and not already finished.
+              if (!mine.includes(roomId) || minesDone.includes(roomId)) return;
+
+              done[senderId] = [...minesDone, roomId];
+              this.dlWrite('tasksDoneJson', done);
+
+              // Only genuine crew work counts toward the crew's win.
+              const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+              if (!impostorIds.includes(senderId)) {
+                  this.hostPrivateState = {
+                      ...this.hostPrivateState,
+                      tasksCompleted: Number(this.hostPrivateState.tasksCompleted ?? 0) + 1,
+                  };
+              }
+
+              this.broadcastDeadlockState();
+              this.checkDeadlockWin();
+              return;
+          }
+
+          case 'DL_MEETING': {
+              if (store.phase !== 'roaming') return;
+              const bodyId = payload.bodyId ? String(payload.bodyId) : null;
+              const bodies = this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []);
+
+              if (bodyId) {
+                  // You must actually be standing over the body you report.
+                  const body = bodies.find(b => b.playerId === bodyId);
+                  if (!body || body.roomId !== positions[senderId]) return;
+              } else {
+                  // Emergency meetings are once per player, for the whole game.
+                  const used = this.dlRead<string[]>('emergenciesUsedJson', []);
+                  if (used.includes(senderId)) return;
+                  this.dlWrite('emergenciesUsedJson', [...used, senderId]);
+              }
+
+              this.startDeadlockMeeting(senderId, bodyId);
+              return;
+          }
+      }
+  }
+
+  /** Everyone is pulled back together; the shared discussion machinery takes over. */
+  private startDeadlockMeeting(callerId: string, bodyId: string | null) {
+      const store = useGameStore.getState();
+      const callerName = store.players[callerId]?.name ?? 'Someone';
+
+      if (bodyId) {
+          const victim = store.players[bodyId]?.name ?? 'a crewmate';
+          this.broadcastSystemMessage(`${callerName} found ${victim}'s body. Everyone to the bridge.`);
+      } else {
+          this.broadcastSystemMessage(`${callerName} called an emergency meeting.`);
+      }
+
+      // Bodies are cleared once reported, and everyone regroups.
+      this.dlWrite('bodiesJson', []);
+      const positions: Record<string, string> = {};
+      Object.values(store.players).forEach(p => { if (p.isAlive) positions[p.id] = SPAWN_ROOM; });
+      this.hostPrivateState = { ...this.hostPrivateState, positions };
+      this.broadcastDeadlockState();
+
+      this.stopDeadlockBots();
+      this.startModeDayPhase();
+  }
+
+  /** Ends the game if the station mode's win condition is met. */
+  private checkDeadlockWin(): boolean {
+      const store = useGameStore.getState();
+      const result = getMode('deadlock').checkWinCondition(store.players, this.hostPrivateState);
+      if (!result) return false;
+      this.broadcastModeGameOver(result.winnerId, result.winnerLabel, result.description);
+      return true;
+  }
+
+  /** Bots wander, work and (if impostor) hunt while roaming. */
+  private deadlockBotInterval: ReturnType<typeof setInterval> | null = null;
+
+  private startDeadlockBots() {
+      this.stopDeadlockBots();
+
+      this.deadlockBotInterval = setInterval(() => {
+          const store = useGameStore.getState();
+          if (store.phase !== 'roaming' || store.myId !== store.hostId) {
+              this.stopDeadlockBots();
+              return;
+          }
+
+          const positions = (this.hostPrivateState.positions as Record<string, string>) ?? {};
+          const impostorIds = (this.hostPrivateState.impostorIds as string[]) ?? [];
+          const bots = Object.values(store.players).filter(p => p.isBot && p.isAlive);
+
+          bots.forEach(bot => {
+              const at = positions[bot.id] ?? SPAWN_ROOM;
+
+              // An impostor bot takes a chance when it is alone with someone.
+              if (impostorIds.includes(bot.id)) {
+                  const prey = Object.values(store.players).filter(
+                      p => p.isAlive && p.id !== bot.id &&
+                           !impostorIds.includes(p.id) &&
+                           positions[p.id] === at
+                  );
+                  // Only when there are no witnesses beyond the victim.
+                  const witnesses = Object.values(store.players).filter(
+                      p => p.isAlive && p.id !== bot.id && positions[p.id] === at
+                  ).length;
+                  if (prey.length > 0 && witnesses === 1 && Math.random() < 0.5) {
+                      this.handleDeadlockAction(bot.id, 'DL_KILL', { targetId: prey[0].id });
+                      return;
+                  }
+              }
+
+              // Report a body they are standing over.
+              const bodies = this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []);
+              const bodyHere = bodies.find(b => b.roomId === at);
+              if (bodyHere && !impostorIds.includes(bot.id) && Math.random() < 0.6) {
+                  this.handleDeadlockAction(bot.id, 'DL_MEETING', { bodyId: bodyHere.playerId });
+                  return;
+              }
+
+              // Work a task if one is here.
+              const assignments = this.dlRead<Record<string, string[]>>('taskAssignmentsJson', {});
+              const done = this.dlRead<Record<string, string[]>>('tasksDoneJson', {});
+              if ((assignments[bot.id] ?? []).includes(at) && !(done[bot.id] ?? []).includes(at)) {
+                  if (Math.random() < 0.22) {
+                      this.handleDeadlockAction(bot.id, 'DL_TASK', { roomId: at });
+                      return;
+                  }
+              }
+
+              // Otherwise head for the nearest unfinished task, or wander.
+              const room = getRoom(at);
+              if (!room || Math.random() > 0.7) return;
+
+              const wanted = (assignments[bot.id] ?? []).filter(r => !(done[bot.id] ?? []).includes(r));
+              // Head for a task only sometimes, so bots spread out and are
+              // plausibly somewhere they have no business being.
+              const towardTask = Math.random() < 0.55 ? room.exits.find(e => wanted.includes(e)) : undefined;
+              const next = towardTask ?? room.exits[Math.floor(Math.random() * room.exits.length)];
+              this.handleDeadlockAction(bot.id, 'DL_MOVE', { roomId: next });
+          });
+      }, 2500);
+  }
+
+  private stopDeadlockBots() {
+      if (this.deadlockBotInterval) {
+          clearInterval(this.deadlockBotInterval);
+          this.deadlockBotInterval = null;
+      }
+  }
+
+  /** Starts (or restarts) free movement around the station. */
+  private startRoamingPhase() {
+      const store = useGameStore.getState();
+      if (this.checkDeadlockWin()) return;
+
+      // Roaming has no deadline of its own; it ends when someone calls a
+      // meeting, so the timer is cleared rather than set.
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'roaming', timerEnd: undefined }
+      });
+      store.setPhase('roaming');
+      store.setTimerEnd(null);
+      this.broadcastDeadlockState();
+      this.startDeadlockBots();
+  }
+
+  /** Public: called by the night-task UI when a player finishes one. */
+  sendTaskComplete(taskId: string) {
+      const store = useGameStore.getState();
+      store.bumpMyTasksDone();
+
+      if (store.myId === store.hostId) {
+          this.processTaskComplete(store.myId);
+      } else if (store.hostId) {
+          this.sendMessage(store.hostId, {
+              type: 'TASK_COMPLETE',
+              senderId: store.myId,
+              payload: { taskId }
+          });
+      }
+  }
+
+  private processTaskComplete(playerId: string) {
+      const store = useGameStore.getState();
+      if (store.phase !== 'night') return;
+      if (!store.players[playerId]?.isAlive) return;
+
+      this.taskCompletions[playerId] = (this.taskCompletions[playerId] ?? 0) + 1;
+      this.broadcastTaskProgress();
+  }
+
+  /** One task per living player is the night's quota. */
+  private taskQuota(): number {
+      const store = useGameStore.getState();
+      return Math.max(1, Object.values(store.players).filter(p => p.isAlive).length);
+  }
+
+  private broadcastTaskProgress() {
+      const store = useGameStore.getState();
+      const completed = Object.values(this.taskCompletions).reduce((a, b) => a + b, 0);
+      const payload = { completed, required: this.taskQuota() };
+
+      this.broadcast({ type: 'TASK_PROGRESS', senderId: store.myId, payload });
+      store.setTaskProgress(payload);
+  }
+
+  sendVerdict(verdict: Verdict) {
+      const store = useGameStore.getState();
+      store.setMyVerdict(verdict);
+
+      if (store.myId === store.hostId) {
+          this.processVerdict(store.myId, verdict);
+      } else if (store.hostId) {
+          this.sendMessage(store.hostId, {
+              type: 'VERDICT',
+              senderId: store.myId,
+              payload: { verdict }
+          });
+      }
+  }
+
+  private processVerdict(voterId: string, verdict: Verdict) {
+      const store = useGameStore.getState();
+      // The accused cannot vote on their own fate, and the dead have no say.
+      if (voterId === store.accusedId) return;
+      if (!store.players[voterId]?.isAlive) return;
+
+      this.trialVerdicts[voterId] = verdict;
+      this.broadcastVerdictTally();
+  }
+
+  private broadcastVerdictTally() {
+      const store = useGameStore.getState();
+      const jurors = Object.values(store.players)
+          .filter(p => p.isAlive && p.id !== store.accusedId).length;
+
+      // The Mayor's vote carries double weight here too.
+      const weigh = (voterId: string) =>
+          (store.allRoles || {})[voterId] === 'mayor' ? 2 : 1;
+
+      let guilty = 0;
+      let innocent = 0;
+      Object.entries(this.trialVerdicts).forEach(([voterId, v]) => {
+          if (v === 'guilty') guilty += weigh(voterId);
+          else if (v === 'innocent') innocent += weigh(voterId);
+      });
+
+      const counts = { guilty, innocent, cast: Object.keys(this.trialVerdicts).length, total: jurors };
+      this.broadcast({ type: 'VERDICT_UPDATE', senderId: store.myId, payload: counts });
+      store.setVerdictCounts(counts);
+  }
+
+  private resolveTrialVerdict() {
+      const store = useGameStore.getState();
+      const accusedId = store.accusedId;
+      if (!accusedId) { this.startNightPhase(); return; }
+
+      this.broadcastVerdictTally();
+      const { guilty, innocent } = useGameStore.getState().verdictCounts;
+      const name = store.players[accusedId]?.name ?? 'The accused';
+
+      // A tie acquits — the town has to be sure.
+      if (guilty > innocent) {
+          this.broadcastSystemMessage(`Guilty, ${guilty} to ${innocent}. ${name} is eliminated.`);
+          store.setAccused(null);
+          this.executePlayer(accusedId, 'The town found them guilty:');
+          return;
+      }
+
+      this.broadcastSystemMessage(
+          `Not guilty, ${innocent} to ${guilty}. ${name} walks free — and night falls.`
+      );
+      store.setAccused(null);
+      this.enterClassicReveal(null, `${name} was found not guilty.`);
+  }
+
+  private handleBotVerdicts(accusedId: string) {
+      const store = useGameStore.getState();
+      const bots = Object.values(store.players).filter(p => p.isBot && p.isAlive && p.id !== accusedId);
+      const duration = (store.settings.verdictDuration ?? 30) * 1000;
+
+      bots.forEach(bot => {
+          setTimeout(() => {
+              if (useGameStore.getState().phase !== 'trial_verdict') return;
+              const role = (store.allRoles || {})[bot.id];
+              const accusedRole = (store.allRoles || {})[accusedId];
+
+              // Evil bots protect their own; everyone else leans on the vote
+              // that put the accused here in the first place.
+              let verdict: Verdict;
+              if (isMafiaRole(role) && isMafiaRole(accusedRole)) verdict = 'innocent';
+              else if (role === 'serial_killer' && accusedRole === 'serial_killer') verdict = 'innocent';
+              else verdict = Math.random() < 0.65 ? 'guilty' : 'innocent';
+
+              this.processVerdict(bot.id, verdict);
+          }, Math.random() * duration * 0.7 + 500);
+      });
+  }
+
+  /**
+   * Kills a player by town decision and handles everything that follows:
+   * the role reveal, a lynched Jester's outright win, and any Executioner
+   * whose mark this was.
+   */
+  private executePlayer(eliminatedId: string, verb: string) {
+      const store = useGameStore.getState();
+      const name = store.players[eliminatedId]?.name ?? 'Unknown';
+      const role = (store.allRoles || {})[eliminatedId];
+      const lastWill = this.lastWills[eliminatedId];
+      const resultText = `${verb} ${name}.`;
+
+      store.updatePlayer(eliminatedId, { isAlive: false, lastWill, role });
+      this.broadcastPlayerUpdate();
+      this.sendDeathInfo(eliminatedId, 'You were eliminated by the town.');
+      this.broadcastSystemMessage(resultText);
+      if (lastWill) this.broadcastSystemMessage(`Last Will of ${name}: "${lastWill}"`);
+      if (role) this.broadcastSystemMessage(`${name} was ${role.replace('_', ' ')}.`);
+
+      // A lynched Jester wins outright, immediately.
+      if (role === 'jester') {
+          this.neutralWinners.add(eliminatedId);
+          this.broadcast({
+              type: 'GAME_OVER',
+              senderId: store.myId,
+              payload: { winner: 'jester', roles: store.allRoles || {}, alsoWon: [eliminatedId] }
+          });
+          store.setGameOver('jester', store.allRoles || {});
+          store.setAlsoWon([eliminatedId]);
+          return;
+      }
+
+      // An Executioner whose mark is lynched banks their win and plays on.
+      Object.entries(this.executionerTargets).forEach(([execId, markId]) => {
+          if (markId !== eliminatedId || this.neutralWinners.has(execId)) return;
+          this.neutralWinners.add(execId);
+          this.sendPrivateSystemMessage(
+              execId,
+              'Your mark has been lynched. Your work here is done — you have won, whatever happens next.'
+          );
+      });
+
+      if (this.checkWinCondition()) return;
+      this.enterClassicReveal(eliminatedId, resultText);
+  }
+
+  /** Shows the day's outcome, then night falls. */
+  private enterClassicReveal(eliminatedId: string | null, resultText: string) {
+      const store = useGameStore.getState();
+      const eliminationResult = { eliminatedId, resultText };
+      const duration = 8000;
+      const timerEnd = Date.now() + duration;
+
+      this.broadcast({
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: { phase: 'elimination_reveal', payload: { eliminationResult }, timerEnd }
+      });
       store.setPhase('elimination_reveal');
       store.setEliminationResult(eliminationResult);
       store.setTimerEnd(timerEnd);
@@ -1234,44 +1972,66 @@ class NetworkManager {
       setTimeout(() => this.handlePhaseTimeout('elimination_reveal'), duration);
   }
 
+  /**
+   * Ends the game when a faction has actually won.
+   *
+   * Counting is by faction, not by role name, so a new Town or Mafia role is
+   * picked up automatically. Neutrals are excluded from both sides: they
+   * neither help the Town reach safety nor the Mafia reach parity.
+   *
+   * Survivors and Executioners are passengers — they never end the game on
+   * their own, they just collect their own win alongside whoever does.
+   */
   private checkWinCondition(): boolean {
       const store = useGameStore.getState();
       const alivePlayers = Object.values(store.players).filter(p => p.isAlive);
       const allRoles = store.allRoles || {};
-      
-      const mafiaCount = alivePlayers.filter(p => allRoles[p.id] === 'mafia').length;
-      const townCount = alivePlayers.filter(p => allRoles[p.id] !== 'mafia' && allRoles[p.id] !== 'serial_killer' && allRoles[p.id] !== 'jester').length;
-      const skCount = alivePlayers.filter(p => allRoles[p.id] === 'serial_killer').length;
-      
-      let winner: 'town' | 'mafia' | 'serial_killer' | null = null;
+      const roleOf = (id: string) => allRoles[id];
 
-      if (mafiaCount === 0 && skCount === 0) {
+      const mafiaCount = alivePlayers.filter(p => isMafiaRole(roleOf(p.id))).length;
+      const townCount = alivePlayers.filter(p => isTownRole(roleOf(p.id))).length;
+      const skCount = alivePlayers.filter(p => roleOf(p.id) === 'serial_killer').length;
+      const witchCount = alivePlayers.filter(p => roleOf(p.id) === 'witch').length;
+
+      // Everyone who can still end the game by killing.
+      const hostileCount = mafiaCount + skCount;
+
+      let winner: ClassicWinner | null = null;
+
+      if (hostileCount === 0) {
           winner = 'town';
-      } else if (mafiaCount >= (townCount + skCount) && skCount === 0) {
-          winner = 'mafia';
-      } else if (skCount >= (townCount + mafiaCount)) {
-          // SK wins if they are last one standing or 1v1 with anyone?
-          // Usually SK wins 1v1 against Town, but 1v1 against Mafia is tricky.
-          // Simple rule: SK wins if remaining >= others.
+      } else if (skCount > 0 && skCount >= townCount + mafiaCount + witchCount) {
           winner = 'serial_killer';
+      } else if (mafiaCount > 0 && skCount === 0 && mafiaCount >= townCount + witchCount) {
+          winner = 'mafia';
       }
 
-      if (winner) {
-          const msg: NetworkMessage = {
-              type: 'GAME_OVER',
-              senderId: store.myId,
-              payload: {
-                  winner,
-                  roles: allRoles
-              }
-          };
-          this.broadcast(msg);
-          store.setGameOver(winner, allRoles);
-          this.startBotChatLoop('game_over');
-          return true;
-      }
+      if (!winner) return false;
 
-      return false;
+      // Neutrals who quietly met their own goal ride along with the result.
+      const alsoWon = [
+          // A Survivor wins simply by still breathing.
+          ...alivePlayers.filter(p => roleOf(p.id) === 'survivor').map(p => p.id),
+          // A Witch wins if they outlive the game.
+          ...alivePlayers.filter(p => roleOf(p.id) === 'witch').map(p => p.id),
+          // Jesters and Executioners banked their win earlier, at the lynch.
+          ...this.neutralWinners,
+      ];
+
+      const msg: NetworkMessage = {
+          type: 'GAME_OVER',
+          senderId: store.myId,
+          payload: {
+              winner,
+              roles: allRoles,
+              alsoWon: [...new Set(alsoWon)],
+          }
+      };
+      this.broadcast(msg);
+      store.setGameOver(winner, allRoles);
+      store.setAlsoWon([...new Set(alsoWon)]);
+      this.startBotChatLoop('game_over');
+      return true;
   }
 
   private broadcastSystemMessage(content: string) {
@@ -1303,24 +2063,75 @@ class NetworkManager {
     this.broadcast(msg);
   }
 
-  private handleNightAction(senderId: string, action: 'KILL' | 'SAVE' | 'INVESTIGATE' | 'PROTECT', targetId: string) {
+  /** Clears every per-night action map. */
+  private resetNightActions() {
+      this.nightActions = emptyNightActions();
+  }
+
+  /** Charges this player has left, seeding from their role on first use. */
+  private chargesLeft(playerId: string, role: Role | undefined): number {
+      if (!role) return 0;
+      const max = ABILITY_CHARGES[role];
+      if (max === undefined) return Infinity;
+      return this.abilityUses[playerId] ?? max;
+  }
+
+  private handleNightAction(
+      senderId: string,
+      action: NightActionType,
+      targetId: string,
+      secondTargetId?: string
+  ) {
       const store = useGameStore.getState();
       const role = (store.allRoles || {})[senderId];
 
-      if (action === 'KILL') {
-          if (role === 'mafia') {
-              this.nightActions.mafiaVote[senderId] = targetId;
-          } else if (role === 'vigilante') {
-              this.nightActions.vigilanteTargets[senderId] = targetId;
-          } else if (role === 'serial_killer') {
-              this.nightActions.serialKillerTargets[senderId] = targetId;
-          }
-      } else if (action === 'SAVE') {
-          this.nightActions.doctorTargets[senderId] = targetId;
-      } else if (action === 'PROTECT') {
-          this.nightActions.bodyguardTargets[senderId] = targetId;
-      } else if (action === 'INVESTIGATE') {
-          this.nightActions.detectiveTargets[senderId] = targetId;
+      // The host is authoritative: never let a client act for a role it does
+      // not hold, or act at all while dead.
+      if (!store.players[senderId]?.isAlive) return;
+
+      switch (action) {
+          case 'KILL':
+              if (role === 'mafia') this.nightActions.mafiaVote[senderId] = targetId;
+              else if (role === 'vigilante') this.nightActions.vigilanteTargets[senderId] = targetId;
+              else if (role === 'serial_killer') this.nightActions.serialKillerTargets[senderId] = targetId;
+              break;
+          case 'SAVE':
+              if (role === 'doctor') this.nightActions.doctorTargets[senderId] = targetId;
+              break;
+          case 'PROTECT':
+              if (role === 'bodyguard') this.nightActions.bodyguardTargets[senderId] = targetId;
+              break;
+          case 'INVESTIGATE':
+              if (role === 'detective') this.nightActions.detectiveTargets[senderId] = targetId;
+              break;
+          case 'ROLEBLOCK':
+              if (role === 'escort') this.nightActions.escortTargets[senderId] = targetId;
+              break;
+          case 'FRAME':
+              if (role === 'framer') this.nightActions.framerTargets[senderId] = targetId;
+              break;
+          case 'WATCH':
+              if (role === 'lookout') this.nightActions.lookoutTargets[senderId] = targetId;
+              break;
+          case 'ALERT':
+              // Self-targeting and charge-limited.
+              if (role === 'veteran' && this.chargesLeft(senderId, role) > 0) {
+                  this.nightActions.veteranAlerts[senderId] = true;
+              }
+              break;
+          case 'VEST':
+              if (role === 'survivor' && this.chargesLeft(senderId, role) > 0) {
+                  this.nightActions.survivorVests[senderId] = true;
+              }
+              break;
+          case 'CONTROL':
+              if (role === 'witch' && secondTargetId) {
+                  this.nightActions.witchControls[senderId] = {
+                      victimId: targetId,
+                      newTargetId: secondTargetId,
+                  };
+              }
+              break;
       }
   }
 
@@ -1400,6 +2211,13 @@ class NetworkManager {
         store.setPlayers(message.payload.players);
         break;
 
+      case 'SETTINGS_UPDATE':
+        // Only the host dictates settings; ignore it from anyone else.
+        if (message.senderId === store.hostId) {
+            store.setSettings(message.payload.settings);
+        }
+        break;
+
       case 'GAME_START':
         store.setSettings(message.payload.settings);
         store.setGameMode(message.payload.gameMode ?? 'classic_mafia');
@@ -1445,6 +2263,16 @@ class NetworkManager {
             if (message.payload.payload?.impostorGuessPlayerId) {
                 store.setImpostorGuessPlayerId(message.payload.payload.impostorGuessPlayerId);
             }
+            if (typeof message.payload.payload?.round === 'number') {
+                store.setRound(message.payload.payload.round);
+            }
+            if (message.payload.payload?.accusedId) {
+                store.setAccused(message.payload.payload.accusedId);
+                if (message.payload.phase === 'trial_defense') {
+                    store.setMyVerdict(null);
+                    store.setVerdictCounts({ guilty: 0, innocent: 0, cast: 0, total: 0 });
+                }
+            }
             if (message.payload.timerEnd) {
               store.setTimerEnd(message.payload.timerEnd);
             }
@@ -1453,7 +2281,12 @@ class NetworkManager {
 
       case 'NIGHT_ACTION':
           if (store.myId === store.hostId) {
-              this.handleNightAction(message.senderId, message.payload.action, message.payload.targetId);
+              this.handleNightAction(
+                  message.senderId,
+                  message.payload.action,
+                  message.payload.targetId,
+                  message.payload.secondTargetId
+              );
           }
           break;
 
@@ -1461,6 +2294,30 @@ class NetworkManager {
           if (store.myId === store.hostId) {
               this.processVote(message.senderId, message.payload.targetId);
           }
+          break;
+
+      case 'VERDICT':
+          if (store.myId === store.hostId) {
+              this.processVerdict(message.senderId, message.payload.verdict);
+          }
+          break;
+
+      case 'VERDICT_UPDATE':
+          store.setVerdictCounts(message.payload);
+          break;
+
+      case 'TASK_COMPLETE':
+          if (store.myId === store.hostId) {
+              this.processTaskComplete(message.senderId);
+          }
+          break;
+
+      case 'TASK_PROGRESS':
+          store.setTaskProgress(message.payload);
+          break;
+
+      case 'DEADLOCK_STATE':
+          store.setDeadlock(message.payload);
           break;
           
       case 'VOTE_UPDATE':
@@ -1624,10 +2481,22 @@ class NetworkManager {
                 assignedNumber: p.assignedNumber,
                 commonWord: p.commonWord,
             });
+            // Deadlock: each player's route is sent only to them.
+            if (p.tasks) {
+                store.setDeadlock({ myTasks: p.tasks, myTasksDone: [] });
+            }
             break;
         }
 
         case 'MODE_ACTION':
+            if (store.myId === store.hostId && message.payload.actionType.startsWith('DL_')) {
+                this.handleDeadlockAction(
+                    message.senderId,
+                    message.payload.actionType,
+                    message.payload.actionPayload
+                );
+                break;
+            }
             if (store.myId === store.hostId) {
                 const { actionType, actionPayload } = message.payload;
                 if (actionType === 'IMPOSTOR_GUESS') {
@@ -1812,15 +2681,17 @@ class NetworkManager {
 
   // Broadcast (replaced PeerJS connections loop with Socket.IO broadcast_room)
   private broadcast(message: NetworkMessage) {
-    if (this.socket) {
-        const store = useGameStore.getState();
-        // Only host can broadcast usually, but if client calls this, it should probably fail or send to host?
-        // In this architecture, Client sends to Host, Host broadcasts.
-        // If Host calls broadcast, it sends to room.
-        if (store.myId === store.hostId) {
-             this.socket.emit('broadcast_room', { roomId: store.hostId, message });
-        }
-    }
+    if (!this.socket) return;
+    const store = useGameStore.getState();
+    // Clients send to the host; only the host broadcasts to the room.
+    if (store.myId !== store.hostId) return;
+
+    // Address the ROOM, not the current host. The socket.io room is named
+    // after whoever opened it and keeps that name for life, so after a host
+    // migration `hostId` no longer matches it and broadcasts would vanish
+    // into a room nobody is in.
+    const roomId = this.roomId ?? store.hostId;
+    if (roomId) this.socket.emit('broadcast_room', { roomId, message });
   }
 }
 

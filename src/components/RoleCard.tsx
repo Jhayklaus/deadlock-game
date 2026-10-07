@@ -3,6 +3,7 @@ import { clsx } from 'clsx';
 import { Role } from '../lib/types';
 import { Card, CardContent } from './ui/Card';
 import { Badge } from './ui/Badge';
+import { Ban, Crosshair, Eye, Radio, Fingerprint, LifeBuoy, Gavel, Wand2 } from 'lucide-react';
 
 export const roleDescriptions: Record<Role, string> = {
   mafia: "Eliminate the civilians. Work with your partners to deceive the Town.",
@@ -14,7 +15,15 @@ export const roleDescriptions: Record<Role, string> = {
   serial_killer: "Kill everyone. You must be the last one standing.",
   jester: "Trick the Town into voting you out to win.",
   bodyguard: "Protect one player each night. If they are attacked, you die instead.",
-  medium: "Speak with the dead at night to uncover the truth."
+  medium: "Speak with the dead at night to uncover the truth.",
+  escort: "Distract one player each night. Their night action does nothing.",
+  veteran: "Go on alert to kill everyone who visits you — including the innocent.",
+  lookout: "Watch one player each night and see everyone who visits them.",
+  spy: "Listen in on the Mafia. Each night you learn where they struck.",
+  framer: "Frame one player each night so the Detective reads them as Mafia.",
+  survivor: "You answer to no one. Simply be alive when the game ends.",
+  executioner: "Get your target voted out by the Town. How you do it is your business.",
+  witch: "Control one player each night and point their action wherever you like.",
 };
 
 export const roleThemes: Record<Role, {
@@ -82,6 +91,54 @@ export const roleThemes: Record<Role, {
     gradient: "from-indigo-950 to-slate-950 border-indigo-900/50", 
     shadow: "shadow-indigo-900/20",
     badge: 'info'
+  },
+  escort: {
+    color: "text-fuchsia-400",
+    gradient: "from-fuchsia-950 to-slate-950 border-fuchsia-900/50",
+    shadow: "shadow-fuchsia-900/20",
+    badge: 'info'
+  },
+  veteran: {
+    color: "text-yellow-500",
+    gradient: "from-yellow-950 to-slate-950 border-yellow-900/50",
+    shadow: "shadow-yellow-900/20",
+    badge: 'warning'
+  },
+  lookout: {
+    color: "text-sky-400",
+    gradient: "from-sky-950 to-slate-950 border-sky-900/50",
+    shadow: "shadow-sky-900/20",
+    badge: 'info'
+  },
+  spy: {
+    color: "text-cyan-400",
+    gradient: "from-cyan-950 to-slate-950 border-cyan-900/50",
+    shadow: "shadow-cyan-900/20",
+    badge: 'info'
+  },
+  framer: {
+    color: "text-rose-500",
+    gradient: "from-rose-950 to-slate-950 border-rose-900/50",
+    shadow: "shadow-rose-900/20",
+    badge: 'danger'
+  },
+  survivor: {
+    color: "text-lime-400",
+    gradient: "from-lime-950 to-slate-950 border-lime-900/50",
+    shadow: "shadow-lime-900/20",
+    badge: 'default'
+  },
+  executioner: {
+    color: "text-stone-300",
+    gradient: "from-stone-900 to-slate-950 border-stone-700/50",
+    shadow: "shadow-stone-900/20",
+    badge: 'warning'
+  },
+  witch: {
+    color: "text-violet-400",
+    gradient: "from-violet-950 to-slate-950 border-violet-900/50",
+    shadow: "shadow-violet-900/20",
+    badge: 'warning'
   }
 };
 
@@ -144,7 +201,18 @@ export const RoleIcon = ({ role }: { role: Role }) => {
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={clsx(commonClasses, "text-slate-400")}>
         <path fillRule="evenodd" d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z" clipRule="evenodd" />
       </svg>
-    )
+    ),
+    // The original ten roles use bespoke SVGs. Newer roles use Lucide icons,
+    // which stay consistent with the rest of the app and are far cheaper to
+    // maintain than hand-drawn paths.
+    escort: <Ban className={clsx(commonClasses, 'text-fuchsia-400')} strokeWidth={1.25} />,
+    veteran: <Crosshair className={clsx(commonClasses, 'text-yellow-500')} strokeWidth={1.25} />,
+    lookout: <Eye className={clsx(commonClasses, 'text-sky-400')} strokeWidth={1.25} />,
+    spy: <Radio className={clsx(commonClasses, 'text-cyan-400')} strokeWidth={1.25} />,
+    framer: <Fingerprint className={clsx(commonClasses, 'text-rose-500')} strokeWidth={1.25} />,
+    survivor: <LifeBuoy className={clsx(commonClasses, 'text-lime-400')} strokeWidth={1.25} />,
+    executioner: <Gavel className={clsx(commonClasses, 'text-stone-300')} strokeWidth={1.25} />,
+    witch: <Wand2 className={clsx(commonClasses, 'text-violet-400')} strokeWidth={1.25} />,
   };
 
   return <>{svgs[role]}</>;

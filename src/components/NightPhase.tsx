@@ -7,6 +7,7 @@ import ChatBox from './ChatBox';
 import MobileChatDrawer from './MobileChatDrawer';
 import LastWillEditor from './LastWillEditor';
 import Graveyard from './Graveyard';
+import NightTasks from './NightTasks';
 import {
   Moon, Skull, Ghost, Eye, Shield, Crosshair, HeartPulse, Hourglass,
   Ban, Radio, Fingerprint, LifeBuoy, Wand2, Gavel, Check,
@@ -131,8 +132,11 @@ export default function NightPhase() {
             </p>
         </Card>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <LastWillEditor />
-            <Graveyard />
+            <NightTasks />
+            <div className="space-y-6">
+              <LastWillEditor />
+              <Graveyard />
+            </div>
         </div>
       </div>
     );
@@ -295,13 +299,17 @@ export default function NightPhase() {
                 </Button>
             </>
             ) : (
-            <Card variant="default" className="py-12 bg-slate-950/50 text-center border-slate-800 flex flex-col items-center justify-center">
-                <div className="bg-slate-900 p-4 rounded-full mb-4 animate-pulse">
-                    <Hourglass size={32} className="text-slate-500" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-300 mb-2">Action Confirmed</h3>
-                <span className="text-slate-500 italic">Waiting for night to end...</span>
-            </Card>
+            <div className="space-y-6">
+              <Card variant="default" className="py-8 text-center flex flex-col items-center justify-center">
+                  <div className="bg-surface p-4 rounded-full mb-4">
+                      <Hourglass size={28} className="text-ink-muted" />
+                  </div>
+                  <h3 className="text-lg font-heading font-semibold text-ink mb-1">Action confirmed</h3>
+                  <span className="text-ink-muted text-sm">Waiting for night to end…</span>
+              </Card>
+              {/* Something to do with the rest of the night. */}
+              <NightTasks />
+            </div>
             )}
         </Card>
 

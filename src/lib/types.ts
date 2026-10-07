@@ -225,12 +225,17 @@ export interface GameState {
   accusedId: PlayerId | null;
   verdictCounts: { guilty: number; innocent: number; cast: number; total: number };
   myVerdict: Verdict | null;
+  // Night tasks
+  taskProgress: { completed: number; required: number };
+  myTasksDone: number;
 }
 
 /** A juror's call during a trial. */
 export type Verdict = 'guilty' | 'innocent' | 'abstain';
 
 export interface GameSettings {
+  /** Give players with no night action a small task to do. Classic Mafia only. */
+  nightTasksEnabled?: boolean;
   /** Put the accused on trial before eliminating them. Classic Mafia only. */
   trialEnabled?: boolean;
   /** Seconds the accused gets to defend themselves. */
@@ -301,6 +306,8 @@ export type MessageType =
   | 'SETTINGS_UPDATE' // host → all: live lobby settings change
   | 'VERDICT'         // juror → host
   | 'VERDICT_UPDATE'  // host → all: running tally
+  | 'TASK_COMPLETE'   // player → host: finished a night task
+  | 'TASK_PROGRESS'   // host → all: town-wide task progress
   | 'MODE_ASSIGN'   // v2: per-player mode payload (sent individually, never broadcast)
   | 'MODE_ACTION'   // v2: player → host generic action
   | 'MODE_RESULT';  // v2: host → all result broadcast
@@ -463,6 +470,20 @@ export interface VerdictUpdateMessage extends BaseMessage {
   };
 }
 
+export interface TaskCompleteMessage extends BaseMessage {
+  type: 'TASK_COMPLETE';
+  payload: { taskId: string };
+}
+
+export interface TaskProgressMessage extends BaseMessage {
+  type: 'TASK_PROGRESS';
+  payload: {
+    completed: number;
+    /** Tasks needed for the town to earn its bonus tonight. */
+    required: number;
+  };
+}
+
 export interface TypingMessage extends BaseMessage {
   type: 'TYPING';
   payload: {
@@ -521,6 +542,8 @@ export type NetworkMessage =
   | SettingsUpdateMessage
   | VerdictMessage
   | VerdictUpdateMessage
+  | TaskCompleteMessage
+  | TaskProgressMessage
   | ModeAssignMessage
   | ModeActionMessage
   | ModeResultMessage;

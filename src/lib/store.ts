@@ -47,10 +47,14 @@ interface GameActions {
   setAccused: (id: PlayerId | null) => void;
   setVerdictCounts: (counts: { guilty: number; innocent: number; cast: number; total: number }) => void;
   setMyVerdict: (verdict: Verdict | null) => void;
+  setTaskProgress: (progress: { completed: number; required: number }) => void;
+  bumpMyTasksDone: () => void;
+  resetTasks: () => void;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
   voiceRoomUrl: null,
+  nightTasksEnabled: true,
   trialEnabled: true,
   defenseDuration: 30,
   verdictDuration: 30,
@@ -119,6 +123,8 @@ const initialState: GameState = {
   accusedId: null,
   verdictCounts: { guilty: 0, innocent: 0, cast: 0, total: 0 },
   myVerdict: null,
+  taskProgress: { completed: 0, required: 0 },
+  myTasksDone: 0,
 };
 
 export const useGameStore = create<GameState & GameActions>()(
@@ -213,6 +219,8 @@ export const useGameStore = create<GameState & GameActions>()(
           accusedId: null,
           verdictCounts: { guilty: 0, innocent: 0, cast: 0, total: 0 },
           myVerdict: null,
+          taskProgress: { completed: 0, required: 0 },
+          myTasksDone: 0,
           uiScreen: 'in_lobby' as UiScreen,
         };
       }),
@@ -247,6 +255,9 @@ export const useGameStore = create<GameState & GameActions>()(
       setAccused: (accusedId) => set({ accusedId }),
       setVerdictCounts: (verdictCounts) => set({ verdictCounts }),
       setMyVerdict: (myVerdict) => set({ myVerdict }),
+      setTaskProgress: (taskProgress) => set({ taskProgress }),
+      bumpMyTasksDone: () => set(state => ({ myTasksDone: state.myTasksDone + 1 })),
+      resetTasks: () => set({ taskProgress: { completed: 0, required: 0 }, myTasksDone: 0 }),
     }),
     {
       name: 'tno-game-storage',

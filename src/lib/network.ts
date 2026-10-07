@@ -49,6 +49,12 @@ class NetworkManager {
   /** Juror verdicts for the trial in progress. */
   private trialVerdicts: Record<PlayerId, Verdict> = {};
 
+  /** Night tasks completed this night, per player. */
+  private taskCompletions: Record<PlayerId, number> = {};
+
+  /** Seconds added to the next discussion when the town meets its quota. */
+  private static readonly TASK_BONUS_SECONDS = 20;
+
   // Host state for Last Wills
   private lastWills: Record<PlayerId, string> = {};
 
@@ -765,6 +771,14 @@ class NetworkManager {
       // Clear previous night actions
       this.resetNightActions();
 
+      // Fresh task board each night, with the quota published up front so the
+      // progress bar is meaningful before anyone has finished anything.
+      this.taskCompletions = {};
+      store.resetTasks();
+      if (store.settings.nightTasksEnabled !== false) {
+          this.broadcastTaskProgress();
+      }
+
       const duration = store.settings.nightDuration * 1000;
       const timerEnd = Date.now() + duration;
 
@@ -1047,8 +1061,19 @@ class NetworkManager {
 
     if (this.checkWinCondition()) return;
 
+    // The town's night work buys them a little more time to talk.
+    const completed = Object.values(this.taskCompletions).reduce((a, b) => a + b, 0);
+    const earnedBonus =
+        store.settings.nightTasksEnabled !== false && completed >= this.taskQuota();
+    if (earnedBonus) {
+        this.broadcastSystemMessage(
+            `The town got through its work overnight. Discussion runs ${NetworkManager.TASK_BONUS_SECONDS} seconds longer today.`
+        );
+    }
+
     // Transition to Day Discussion
-    const duration = store.settings.discussionDuration * 1000;
+    const duration =
+        (store.settings.discussionDuration + (earnedBonus ? NetworkManager.TASK_BONUS_SECONDS : 0)) * 1000;
     const timerEnd = Date.now() + duration;
 
     this.broadcast({
@@ -1276,6 +1301,46 @@ class NetworkManager {
   }
 
   /** Public: called by the verdict UI. */
+  /** Public: called by the night-task UI when a player finishes one. */
+  sendTaskComplete(taskId: string) {
+      const store = useGameStore.getState();
+      store.bumpMyTasksDone();
+
+      if (store.myId === store.hostId) {
+          this.processTaskComplete(store.myId);
+      } else if (store.hostId) {
+          this.sendMessage(store.hostId, {
+              type: 'TASK_COMPLETE',
+              senderId: store.myId,
+              payload: { taskId }
+          });
+      }
+  }
+
+  private processTaskComplete(playerId: string) {
+      const store = useGameStore.getState();
+      if (store.phase !== 'night') return;
+      if (!store.players[playerId]?.isAlive) return;
+
+      this.taskCompletions[playerId] = (this.taskCompletions[playerId] ?? 0) + 1;
+      this.broadcastTaskProgress();
+  }
+
+  /** One task per living player is the night's quota. */
+  private taskQuota(): number {
+      const store = useGameStore.getState();
+      return Math.max(1, Object.values(store.players).filter(p => p.isAlive).length);
+  }
+
+  private broadcastTaskProgress() {
+      const store = useGameStore.getState();
+      const completed = Object.values(this.taskCompletions).reduce((a, b) => a + b, 0);
+      const payload = { completed, required: this.taskQuota() };
+
+      this.broadcast({ type: 'TASK_PROGRESS', senderId: store.myId, payload });
+      store.setTaskProgress(payload);
+  }
+
   sendVerdict(verdict: Verdict) {
       const store = useGameStore.getState();
       store.setMyVerdict(verdict);
@@ -1766,6 +1831,16 @@ class NetworkManager {
 
       case 'VERDICT_UPDATE':
           store.setVerdictCounts(message.payload);
+          break;
+
+      case 'TASK_COMPLETE':
+          if (store.myId === store.hostId) {
+              this.processTaskComplete(message.senderId);
+          }
+          break;
+
+      case 'TASK_PROGRESS':
+          store.setTaskProgress(message.payload);
           break;
           
       case 'VOTE_UPDATE':

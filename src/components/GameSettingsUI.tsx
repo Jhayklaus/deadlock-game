@@ -73,6 +73,22 @@ export default function GameSettingsUI() {
               <Gavel size={14} /> Trial
             </h4>
 
+            <label className="flex items-center justify-between gap-4 p-3 rounded-xl border border-edge/60 bg-base/40 cursor-pointer mb-3">
+              <span>
+                <span className="block text-sm font-semibold text-ink">Night tasks</span>
+                <span className="block text-xs text-ink-muted mt-0.5">
+                  Give players with no night action a small task. Finish the town&apos;s quota
+                  and discussion runs longer the next day.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.nightTasksEnabled !== false}
+                onChange={e => networkManager.updateSettings({ ...settings, nightTasksEnabled: e.target.checked })}
+                className="w-5 h-5 shrink-0 accent-current text-accent cursor-pointer"
+              />
+            </label>
+
             <label className="flex items-center justify-between gap-4 p-3 rounded-xl border border-edge/60 bg-base/40 cursor-pointer">
               <span>
                 <span className="block text-sm font-semibold text-ink">Trial before elimination</span>

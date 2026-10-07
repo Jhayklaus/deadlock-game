@@ -368,10 +368,16 @@ const deadlock: ModeGuide = {
       },
     },
     {
+      icon: 'eye',
+      title: 'The shafts',
+      body:
+        'Impostors can also use the maintenance shafts, which join rooms that are nowhere near each other on foot. It is the fastest way across the station and the easiest way to be caught \u2014 arriving somewhere you could not possibly have walked from is exactly what the crew is watching for.',
+    },
+    {
       icon: 'vote',
       title: 'Calling everyone together',
       body:
-        'Find a body and you can report it. You can also call one emergency meeting per game from anywhere, for when something is obviously wrong. Either way everyone is pulled back to the bridge, the body is cleared, and you argue it out and vote \u2014 exactly like a round of Mafia. Then it is back to the station.',
+        'Find a body and you can report it. You can also call one emergency meeting per game from anywhere, for when something is obviously wrong. Either way everyone is pulled back to the bridge and you argue it out and vote \u2014 exactly like a round of Mafia. The meeting shows where every player was standing when it was called, which is the hard evidence in the room. Then it is back to the station.',
     },
     {
       icon: 'trophy',

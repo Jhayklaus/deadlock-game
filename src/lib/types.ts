@@ -267,6 +267,8 @@ export interface DeadlockView {
   lastMeeting: { callerId: PlayerId; bodyId: PlayerId | null } | null;
   /** The sabotage currently running, if any. */
   sabotage: ActiveSabotage | null;
+  /** Where everyone was standing when the last meeting was called. */
+  lastSeen: Record<PlayerId, string>;
   /** Epoch ms until this player may sabotage again. */
   sabotageReadyAt: number;
 }
@@ -543,6 +545,8 @@ export interface DeadlockStateMessage extends BaseMessage {
     tasksCompleted: number;
     tasksTotal: number;
     sabotage: ActiveSabotage | null;
+    /** Populated when a meeting starts, so players can argue from it. */
+    lastSeen?: Record<PlayerId, string>;
   };
 }
 

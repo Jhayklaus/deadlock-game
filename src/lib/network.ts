@@ -7,7 +7,7 @@ import { generateBotName, getBotNightAction, getBotDayVote, getBotChat } from '.
 import { soundManager } from './sound';
 import { getMode } from '../modes/registry';
 import { resolveNight, emptyNightActions, ABILITY_CHARGES } from './nightResolution';
-import { isAdjacent, SPAWN_ROOM, getRoom } from '../data/deadlockMap';
+import { isAdjacent, isVentConnected, SPAWN_ROOM, getRoom } from '../data/deadlockMap';
 import type { ActiveSabotage, SabotageKind } from './types';
 import { KILL_COOLDOWN_SECONDS, SABOTAGE_COOLDOWN_SECONDS, SABOTAGE_DURATIONS, SABOTAGE_FIX_ROOM } from '../modes/deadlock';
 import type { NightActions } from './nightResolution';
@@ -1511,14 +1511,15 @@ class NetworkManager {
           tasksCompleted: Number(this.hostPrivateState.tasksCompleted ?? 0),
           tasksTotal: Number(this.hostPrivateState.tasksTotal ?? 0),
           sabotage: this.dlRead<ActiveSabotage | null>('sabotageJson', null),
+          lastSeen: this.dlRead<Record<string, string>>('lastSeenJson', {}),
       };
       this.broadcast({ type: 'DEADLOCK_STATE', senderId: store.myId, payload });
       store.setDeadlock(payload);
   }
 
   /** Public: the player clicked an adjacent room. */
-  sendDeadlockMove(roomId: string) {
-      this.sendDeadlockAction('DL_MOVE', { roomId });
+  sendDeadlockMove(roomId: string, vent = false) {
+      this.sendDeadlockAction('DL_MOVE', { roomId, vent });
   }
 
   /** Public: the impostor clicked kill on someone in their room. */
@@ -1600,8 +1601,14 @@ class NetworkManager {
               if (store.phase !== 'roaming') return;
               const to = String(payload.roomId ?? '');
               const from = positions[senderId] ?? SPAWN_ROOM;
-              // Adjacency is enforced here, not in the UI.
-              if (!isAdjacent(from, to)) return;
+
+              // Impostors may also take the maintenance shafts. Checked here,
+              // not in the UI, so a crewmate cannot vent by forging a message.
+              const viaVent = Boolean(payload.vent);
+              const impostorsNow = (this.hostPrivateState.impostorIds as string[]) ?? [];
+              const canVent = viaVent && impostorsNow.includes(senderId) && isVentConnected(from, to);
+
+              if (!canVent && !isAdjacent(from, to)) return;
 
               // Sealed doors hold until they time out.
               const sealed = this.dlRead<ActiveSabotage | null>('sabotageJson', null);
@@ -1769,6 +1776,12 @@ class NetworkManager {
       } else {
           this.broadcastSystemMessage(`${callerName} called an emergency meeting.`);
       }
+
+      // Freeze where everyone was standing before regrouping — this is what
+      // the crew actually argues from, and it is gone the moment they move.
+      const lastSeen = { ...((this.hostPrivateState.positions as Record<string, string>) ?? {}) };
+      this.dlWrite('lastSeenJson', lastSeen);
+      useGameStore.getState().setDeadlock({ lastSeen });
 
       // Bodies are cleared once reported, sabotages stop, and everyone regroups.
       this.dlWrite('bodiesJson', []);

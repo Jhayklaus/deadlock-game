@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { clsx } from 'clsx';
 import { useGameStore } from '../../../lib/store';
 import { networkManager } from '../../../lib/network';
-import { DEADLOCK_ROOMS, getCorridors, getRoom, isAdjacent, SPAWN_ROOM } from '../../../data/deadlockMap';
+import { DEADLOCK_ROOMS, getCorridors, getRoom, isAdjacent, getVentExits, SPAWN_ROOM } from '../../../data/deadlockMap';
 import { KILL_COOLDOWN_SECONDS } from '../../../modes/deadlock';
 import { Card } from '../../ui/Card';
 import StationTask from './StationTask';
 import {
   Crosshair, Siren, AlertTriangle, CheckCircle2, Footprints, Users,
-  Lightbulb, DoorClosed, Radiation, Wrench, ShieldAlert,
+  Lightbulb, DoorClosed, Radiation, Wrench, ShieldAlert, ArrowDownUp,
 } from 'lucide-react';
 import type { SabotageKind } from '../../../lib/types';
 
@@ -48,6 +48,8 @@ export default function Station() {
   const myRoom = getRoom(myRoomId);
 
   const corridors = useMemo(() => getCorridors(), []);
+  // Maintenance shafts, impostors only.
+  const ventExits = isImpostor ? getVentExits(myRoomId) : [];
 
   // Who else is standing here right now.
   const roomMates = Object.values(players).filter(
@@ -108,7 +110,8 @@ export default function Station() {
 
             {DEADLOCK_ROOMS.map(room => {
               const here = room.id === myRoomId;
-              const reachable = isAdjacent(myRoomId, room.id);
+              const ventable = ventExits.includes(room.id);
+              const reachable = isAdjacent(myRoomId, room.id) || ventable;
               const sealedIn =
                 sabotage?.kind === 'doors' &&
                 sabotage.roomId === myRoomId &&
@@ -133,7 +136,7 @@ export default function Station() {
                 <button
                   key={room.id}
                   disabled={(!reachable && !here) || sealedIn}
-                  onClick={() => reachable && !sealedIn && networkManager.sendDeadlockMove(room.id)}
+                  onClick={() => reachable && !sealedIn && networkManager.sendDeadlockMove(room.id, ventable)}
                   style={{ left: `${room.x}%`, top: `${room.y}%` }}
                   className={clsx(
                     'absolute -translate-x-1/2 -translate-y-1/2 px-2.5 py-2 rounded-xl border',
@@ -167,6 +170,9 @@ export default function Station() {
                     )}
                     {hasMyTask && (
                       <span className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" title="Your task" />
+                    )}
+                    {ventable && (
+                      <ArrowDownUp size={10} className="text-danger" />
                     )}
                   </span>
                 </button>
@@ -350,6 +356,18 @@ export default function Station() {
                 Doors seal the room you are standing in. The reactor forces the crew
                 to drop everything and run.
               </p>
+              {ventExits.length > 0 && (
+                <p className="text-[11px] text-danger/90 mt-2 flex items-start gap-1.5 leading-relaxed">
+                  <ArrowDownUp size={12} className="shrink-0 mt-0.5" />
+                  <span>
+                    Shafts from here reach{' '}
+                    <span className="font-semibold">
+                      {ventExits.map(id => getRoom(id)?.name).filter(Boolean).join(' and ')}
+                    </span>
+                    . Nobody can walk that fast — mind who sees you arrive.
+                  </span>
+                </p>
+              )}
             </div>
           )}
 

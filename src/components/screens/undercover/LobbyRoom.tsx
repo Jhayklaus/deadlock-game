@@ -1,8 +1,9 @@
 import { useLobbyState } from '../../../hooks/useLobbyState';
+import InviteBar from '../../InviteBar';
 import { clsx } from 'clsx';
 import GameSettingsUI from '../../GameSettingsUI';
 import ModeSelector from '../../ModeSelector/ModeSelector';
-import { Users, Copy, Check, Play, Server, Bot, Crown, ShieldAlert, X, Settings, Eye } from 'lucide-react';
+import { Users, Play, Server, Bot, Crown, ShieldAlert, X, Settings, Eye } from 'lucide-react';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Badge } from '../../ui/Badge';
@@ -12,8 +13,8 @@ import { VoiceRoomBar } from '../../VoiceRoom';
 export default function LobbyRoom() {
   const {
     myId, players, isHost,
-    copySuccess, isSettingsOpen, setIsSettingsOpen,
-    copyToClipboard, startGame, addBot, kickPlayer,
+    isSettingsOpen, setIsSettingsOpen,
+    startGame, addBot, kickPlayer,
     playerCount, minPlayers, canStart,
   } = useLobbyState();
 
@@ -31,22 +32,7 @@ export default function LobbyRoom() {
             <p className="text-amber-500/70 text-sm font-medium">Two words. One impostor. Stay hidden.</p>
           </div>
         </div>
-        {isHost && (
-          <div className="flex flex-col items-center md:items-end gap-2 z-10 w-full md:w-auto">
-            <span className="text-xs font-bold text-amber-500/60 uppercase tracking-widest flex items-center gap-2">
-              <ShieldAlert size={12} /> Room Code
-            </span>
-            <div className="flex items-center gap-2 bg-amber-950/40 p-2 pr-3 pl-4 rounded-xl border border-amber-800/30 shadow-inner w-full md:w-auto justify-between md:justify-start">
-              <code className="text-2xl font-mono font-bold text-amber-300 tracking-[0.2em]">{myId}</code>
-              <div className="flex items-center">
-                <div className="h-8 w-px bg-amber-800/30 mx-2"></div>
-                <button onClick={copyToClipboard} className="p-2 hover:bg-amber-900/30 rounded-lg transition-colors text-amber-400 hover:text-white" title="Copy Code">
-                  {copySuccess ? <Check size={18} className="text-emerald-500" /> : <Copy size={18} />}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {isHost && <InviteBar label="Room Code" className="z-10 w-full md:w-auto" />}
       </Card>
 
       {/* Shown to everyone once the host sets a voice room. */}

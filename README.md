@@ -34,6 +34,7 @@ The game cycles through **Day** and **Night** phases:
 - **Night Tasks:** Players with no night action get a short minigame instead of watching a timer. Meet the town's quota and discussion runs longer the next day.
 - **Dynamic Game Phases:** Lobby, Role Assignment, Night, Day Discussion, Voting, Trial, and Elimination Reveal.
 - **Host Migration:** If the host closes their tab, a surviving player takes over and the game continues.
+- **Invite Links:** Every mode has its own URL. Share `/deadlock/4F2K9Q` and players land in the right game with the code already filled in — no picking a mode by hand, no wrong-room mistakes.
 - **Chat Systems:**
   - **Global Chat:** For public discussion.
   - **Mafia Chat:** Private channel for Mafia members.
@@ -160,9 +161,41 @@ You need to run both the frontend and backend servers.
    npm run dev
    ```
 
+### 🔗 Invite Links
+
+Each mode lives at its own path, and the lobby's **Copy invite link** button
+produces one with the room code appended:
+
+| Mode | Link |
+| --- | --- |
+| Classic Mafia | `/classic/4F2K9Q` |
+| Word Impostor | `/impostor/4F2K9Q` |
+| Undercover | `/undercover/4F2K9Q` |
+| Frequency Spy | `/frequency/4F2K9Q` |
+| Deadlock | `/deadlock/4F2K9Q` |
+
+Dropping the code (`/deadlock`) gives a link that just opens that mode, ready
+to host or join.
+
+**Hosting note.** These are real paths, so the static host has to serve
+`index.html` for unknown paths or the links 404. Config for the common hosts
+ships in the repo — `vercel.json` for Vercel, `public/_redirects` for Netlify
+and Cloudflare Pages — and `vite dev`/`vite preview` already do it.
+
+On a host that cannot rewrite (GitHub Pages, a plain bucket), build with:
+
+```bash
+VITE_INVITE_LINK_STYLE=hash npm run build
+```
+
+Links then take the form `/#/deadlock/4F2K9Q`, which needs no server config.
+Both shapes are always accepted on the way in, along with
+`?mode=deadlock&room=4F2K9Q`; this setting only decides which one the Copy
+button hands out.
+
 ## 📖 How to Play
 
-1. **Host a Game:** Create a lobby and share the Room ID with friends.
+1. **Host a Game:** Create a lobby, then hit **Copy invite link** and send it to friends — it carries both the mode and the room code. The code on its own still works for anyone typing it in.
 2. **Join a Game:** Enter a Room ID to join an existing lobby.
 3. **Setup:** The host can configure game settings (role counts, phase durations) and add bots if needed.
 4. **Start:** Once everyone is ready, the host starts the game.

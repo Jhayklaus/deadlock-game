@@ -183,6 +183,17 @@ export type GamePhase =
 export interface GameState {
   hostId: PlayerId | null;
   myId: PlayerId;
+  /**
+   * The code players type (or click) to join. It is the id of whoever opened
+   * the room and keeps that value for the room's whole life, so after a host
+   * migration it is no longer the same as `hostId`.
+   */
+  roomCode: string | null;
+  /**
+   * Room code lifted out of an invite link, waiting for the player to enter a
+   * name. Not persisted — a stale one would hijack the next visit.
+   */
+  pendingJoinCode: string | null;
   players: Record<PlayerId, Player>;
   phase: GamePhase;
   error: string | null;

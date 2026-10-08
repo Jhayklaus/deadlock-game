@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { syncAddressBar } from '../../lib/deepLink';
 import { useGameStore } from '../../lib/store';
 import type { GameModeId } from '../../lib/types';
 import ModeGuide from '../ModeGuide';
@@ -101,6 +102,9 @@ export default function ModePicker() {
 
   const handleSelect = (modeId: GameModeId) => {
     setSelectedMode(modeId);
+    // Reflect the choice in the URL so this mode's link can be copied
+    // straight out of the address bar, room or no room.
+    syncAddressBar(modeId);
     setUiScreen('pre_join');
   };
 

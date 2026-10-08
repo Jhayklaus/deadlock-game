@@ -201,7 +201,7 @@ class NetworkManager {
 
       // Restore Host Timers
       const store = useGameStore.getState();
-      if (!this.roomId && store.hostId) this.roomId = store.hostId;
+      if (!this.roomId) this.roomId = store.roomCode ?? store.hostId;
       if (store.myId === store.hostId && store.timerEnd && store.phase !== 'lobby' && store.phase !== 'game_over') {
           const remaining = store.timerEnd - Date.now();
           console.log(`Restoring host timer for ${store.phase}, remaining: ${remaining}ms`);
@@ -236,6 +236,7 @@ class NetworkManager {
         roomId: string; newHostId: string; snapshot: ReturnType<NetworkManager['captureHostState']> | null;
     }) => {
         this.roomId = roomId;
+        useGameStore.getState().setRoomCode(roomId);
         this.assumeHost(newHostId, snapshot);
     });
 
@@ -723,8 +724,14 @@ class NetworkManager {
         // The room code is this id for the room's whole life, even if the
         // host changes later.
         this.roomId = myId;
+        useGameStore.getState().setRoomCode(myId);
         this.startStateSync();
     });
+  }
+
+  /** The code to put in an invite link. Survives a host migration. */
+  getRoomCode(): string | null {
+      return this.roomId ?? useGameStore.getState().roomCode ?? useGameStore.getState().hostId;
   }
 
   addBot() {
@@ -753,6 +760,7 @@ class NetworkManager {
     // What the player typed is the room code, which may no longer be the id
     // of whoever is actually hosting.
     this.roomId = hostId;
+    useGameStore.getState().setRoomCode(hostId);
     this.socket.emit('join_game', { hostId, playerName });
   }
 

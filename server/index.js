@@ -74,6 +74,9 @@ const userRooms = new Map();    // userId -> roomId, independent of any socket
 const DISCONNECT_GRACE_MS = 20000;
 const pendingDepartures = new Map(); // userId -> timeout
 
+/** Arrivals that landed while the room's host was offline. */
+const pendingJoins = new Map();      // roomId -> [{ senderId, name }]
+
 /** The snapshot holds secrets (roles, words) and goes only to the new host. */
 function rememberMember(roomId, userId) {
   const members = roomMembers.get(roomId) ?? [];
@@ -105,6 +108,7 @@ function migrateHost(roomId, leavingUserId) {
     roomHosts.delete(roomId);
     roomState.delete(roomId);
     roomMembers.delete(roomId);
+    pendingJoins.delete(roomId);
     console.log(`[migrate] room ${roomId} is empty, discarded`);
     return;
   }
@@ -259,14 +263,53 @@ app.post('/api/bot-action', async (req, res) => {
   }
 });
 
+/**
+ * Takes a user out of a room for good, as opposed to a connection drop.
+ *
+ * Without this the user stayed mapped to the room, so reloading the page put
+ * them straight back into it and the host marked them online again — a player
+ * who quit reappearing in the lobby they left.
+ */
+function releaseMember(userId, roomId, { migrate = true } = {}) {
+  if (!userId || !roomId) return;
+
+  const pending = pendingDepartures.get(userId);
+  if (pending) {
+    clearTimeout(pending);
+    pendingDepartures.delete(userId);
+  }
+
+  userRooms.delete(userId);
+  forgetMember(roomId, userId);
+
+  const sockId = userToSocket.get(userId);
+  if (sockId) {
+    io.sockets.sockets.get(sockId)?.leave(roomId);
+    socketRooms.delete(sockId);
+  }
+
+  if (migrate && roomHosts.get(roomId) === userId) migrateHost(roomId, userId);
+}
+
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
 
   // Register a User ID (Client generated)
-  socket.on('register', (userId) => {
+  socket.on('register', (userId, clientRoomId) => {
       console.log(`Registered ${userId} to socket ${socket.id}`);
       userToSocket.set(userId, socket.id);
       socketToUser.set(socket.id, userId);
+
+      // The client says which room it believes it is in. If that disagrees
+      // with what we are holding, the client wins: it has followed an invite
+      // elsewhere or quit, and restoring the old room would drag it back —
+      // the host would answer with a WELCOME and recapture the session.
+      const held = userRooms.get(userId);
+      if (held && clientRoomId !== undefined && clientRoomId !== held) {
+          console.log(`[release] ${userId} moved on from ${held}`);
+          io.to(held).emit('player_left', { senderId: userId });
+          releaseMember(userId, held);
+      }
 
       // A reconnect lands here with a new socket. Put it back in the room the
       // user was already in, or they receive no broadcasts for the rest of the
@@ -289,6 +332,18 @@ io.on('connection', (socket) => {
           const hostSocketId = userToSocket.get(roomHosts.get(roomId));
           if (hostSocketId && roomHosts.get(roomId) !== userId) {
               io.to(hostSocketId).emit('player_resync', { senderId: userId });
+          }
+
+          // If this is the host returning, hand over anyone who arrived while
+          // they were away.
+          if (roomHosts.get(roomId) === userId) {
+              const queued = pendingJoins.get(roomId) ?? [];
+              pendingJoins.delete(roomId);
+              queued.forEach(j => {
+                  if (!userToSocket.has(j.senderId)) return;   // they left too
+                  console.log(`[queue] delivering ${j.name}'s join to the host of ${roomId}`);
+                  socket.emit('player_joined', j);
+              });
           }
       }
 
@@ -326,11 +381,14 @@ io.on('connection', (socket) => {
     // `hostId` is the room code the player typed. After a migration the room
     // keeps that code but is run by someone else, so resolve the real host.
     const roomId = hostId;
-    const room = io.sockets.adapter.rooms.get(roomId);
     const userId = socketToUser.get(socket.id);
     const currentHost = roomHosts.get(roomId);
 
-    if (room && room.size > 0 && currentHost) {
+    // Whether the room exists is a question about the room, not about who
+    // happens to be connected this instant. Testing socket.io's live room
+    // meant that while the host's connection was down — a couple of seconds
+    // is enough — arrivals were told the game did not exist.
+    if (currentHost) {
         console.log(`User ${userId} (${playerName}) joining room ${roomId} (host ${currentHost})`);
         socket.join(roomId);
         socketRooms.set(socket.id, roomId);
@@ -346,40 +404,20 @@ io.on('connection', (socket) => {
         const hostSocketId = userToSocket.get(currentHost);
         if (hostSocketId) {
             io.to(hostSocketId).emit('player_joined', { senderId: userId, name: playerName });
+        } else {
+            // The host is mid-reconnect. Hold the arrival and hand it over
+            // when they register, or this player is never dealt in: they are
+            // in the room but absent from the host's roster.
+            const queue = pendingJoins.get(roomId) ?? [];
+            if (!queue.some(j => j.senderId === userId)) queue.push({ senderId: userId, name: playerName });
+            pendingJoins.set(roomId, queue);
+            console.log(`[queue] held ${playerName}'s join for absent host of ${roomId}`);
         }
     } else {
         console.log(`User ${userId} failed to join: ${roomId} (Not found)`);
         socket.emit('error_message', { message: 'Game not found or host disconnected' });
     }
   });
-
-  /**
-   * A deliberate exit, as opposed to a connection drop.
-   *
-   * Without this the user stayed mapped to the room, so reloading the page put
-   * them straight back into it and the host marked them online again — a
-   * player who quit reappearing in the lobby they left.
-   */
-  function releaseMember(userId, roomId, { migrate = true } = {}) {
-    if (!userId || !roomId) return;
-
-    const pending = pendingDepartures.get(userId);
-    if (pending) {
-      clearTimeout(pending);
-      pendingDepartures.delete(userId);
-    }
-
-    userRooms.delete(userId);
-    forgetMember(roomId, userId);
-
-    const sockId = userToSocket.get(userId);
-    if (sockId) {
-      io.sockets.sockets.get(sockId)?.leave(roomId);
-      socketRooms.delete(sockId);
-    }
-
-    if (migrate && roomHosts.get(roomId) === userId) migrateHost(roomId, userId);
-  }
 
   socket.on('leave_room', () => {
     const userId = socketToUser.get(socket.id);

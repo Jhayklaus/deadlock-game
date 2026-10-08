@@ -87,6 +87,11 @@ class NetworkManager {
   private connection: ConnectionState = 'connecting';
   private connectionListeners = new Set<(state: ConnectionState) => void>();
   private netEventsBound = false;
+  /** An unanswered join, retried until the host acknowledges it. */
+  private pendingJoin: { hostId: string; playerName: string; attempts: number } | null = null;
+  private joinRetry: ReturnType<typeof setTimeout> | null = null;
+  private static readonly JOIN_RETRY_MS = 2500;
+  private static readonly JOIN_ATTEMPTS = 6;
 
   /** Safety net for phase timers that a throttled tab never fired. */
   private phaseWatchdog: ReturnType<typeof setInterval> | null = null;
@@ -319,7 +324,19 @@ class NetworkManager {
       this.setConnection('online');
       // Register with our ID. On a reconnect this is also what puts us back
       // into our socket.io room, which membership does not survive on its own.
-      this.socket?.emit('register', myId);
+      // The room code goes with it: if we have moved on — followed an invite
+      // to a different room, or quit — the server must release the old one
+      // rather than restoring us into it.
+      this.socket?.emit('register', myId, useGameStore.getState().roomCode ?? null);
+
+      // If a join was still unanswered when we dropped, ask again now rather
+      // than waiting out the retry interval.
+      if (this.pendingJoin) {
+          this.socket?.emit('join_game', {
+              hostId: this.pendingJoin.hostId,
+              playerName: this.pendingJoin.playerName,
+          });
+      }
     });
 
     this.socket.on('registered', (id: string) => {
@@ -417,6 +434,9 @@ class NetworkManager {
     });
 
     this.socket.on('error_message', ({ message }: { message: string }) => {
+        // The room really is gone, as opposed to the host being briefly away,
+        // so stop retrying and say so.
+        this.clearPendingJoin();
         useGameStore.getState().setError(message);
     });
   }
@@ -867,6 +887,7 @@ class NetworkManager {
   disconnect() {
     this.stopStateSync();
     this.stopPhaseWatchdog();
+    this.clearPendingJoin();
     if (this.socket) {
       // Distinguish quitting from dropping out, so the server releases our
       // place instead of holding it open and restoring us on the next load.
@@ -934,6 +955,41 @@ class NetworkManager {
     this.roomId = hostId;
     useGameStore.getState().setRoomCode(hostId);
     this.socket.emit('join_game', { hostId, playerName });
+
+    // A join is announced to the host with a single message. If the host's
+    // connection happens to be down at that moment — a blip of a couple of
+    // seconds is enough — the announcement is dropped and nobody notices: the
+    // joiner sits on an empty lobby forever and the host never learns they
+    // exist. Keep asking until the host answers with a WELCOME.
+    this.pendingJoin = { hostId, playerName, attempts: 0 };
+    this.scheduleJoinRetry();
+  }
+
+  private scheduleJoinRetry() {
+    if (this.joinRetry) clearTimeout(this.joinRetry);
+    this.joinRetry = setTimeout(() => {
+      const pending = this.pendingJoin;
+      if (!pending || !this.socket) return;
+
+      pending.attempts += 1;
+      if (pending.attempts > NetworkManager.JOIN_ATTEMPTS) {
+        this.pendingJoin = null;
+        useGameStore.getState().setError(
+          'Could not reach the host. They may have closed the room — check the code and try again.'
+        );
+        return;
+      }
+
+      this.socket.emit('join_game', { hostId: pending.hostId, playerName: pending.playerName });
+      this.scheduleJoinRetry();
+    }, NetworkManager.JOIN_RETRY_MS);
+  }
+
+  /** The host answered, so stop asking. */
+  private clearPendingJoin() {
+    this.pendingJoin = null;
+    if (this.joinRetry) clearTimeout(this.joinRetry);
+    this.joinRetry = null;
   }
 
   /** Host calls this from the Lobby to change the selected mode. */
@@ -2526,6 +2582,8 @@ class NetworkManager {
         break;
 
       case 'WELCOME':
+        // The host has us on their roster; stop retrying the join.
+        this.clearPendingJoin();
         store.setHostId(message.payload.hostId);
         store.setPlayers(message.payload.players);
         store.setPhase(message.payload.phase);

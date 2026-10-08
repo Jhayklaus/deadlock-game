@@ -34,6 +34,7 @@ The game cycles through **Day** and **Night** phases:
 - **Night Tasks:** Players with no night action get a short minigame instead of watching a timer. Meet the town's quota and discussion runs longer the next day.
 - **Dynamic Game Phases:** Lobby, Role Assignment, Night, Day Discussion, Voting, Trial, and Elimination Reveal.
 - **Host Migration:** If the host closes their tab, a surviving player takes over and the game continues.
+- **Reconnection:** A dropped connection is recovered rather than survived. The player is put back in their room, told what they missed, and handed their own secret again — see Connection Model below.
 - **Invite Links:** Every mode has its own URL. Share `/deadlock/4F2K9Q` and players land in the right game with the code already filled in — no picking a mode by hand, no wrong-room mistakes.
 - **Chat Systems:**
   - **Global Chat:** For public discussion.
@@ -43,6 +44,44 @@ The game cycles through **Day** and **Night** phases:
 - **Mobile-First Design:** Responsive UI with specialized mobile chat drawers and optimized layouts.
 - **Host Controls:** Kick players, add bots, and customize game settings.
 - **Smart AI Bots:** Intelligent bots powered by LLMs (Gemini/DeepSeek) that converse, vote, and perform night actions based on their role and personality.
+
+## 📡 Connection Model
+
+Worth understanding before changing anything in `server/index.js` or
+`src/lib/network.ts`, because the failure modes here are quiet ones.
+
+Game authority lives in the **host's browser**. The Node server is a relay: it
+routes direct messages by user id and broadcasts to a Socket.IO room named
+after whoever opened it.
+
+Four things make that survivable:
+
+1. **Room membership is keyed by user, not socket.** A reconnect arrives as a
+   brand new socket, and Socket.IO room membership belongs to the socket that
+   joined. Tracking rooms by socket id alone meant a player who blipped stayed
+   registered — direct messages still reached them, so they looked online —
+   while every broadcast silently passed them by. Since `GAME_START` is a
+   broadcast, the visible symptom was a player stuck on the lobby screen for
+   the rest of the game.
+
+2. **The host re-states everything on reconnect.** Every message is one-shot,
+   so anything sent while a player was away is gone. When a socket comes back,
+   the server asks the host to run `sendCatchUp()` for that player: public
+   state, the current phase and its deadline, and their own private assignment
+   (role, word, number, tasks). Add a new piece of private per-player state and
+   it belongs in `sendCatchUp` too, or it will not survive a dropped Wi-Fi.
+
+3. **A blip is not a departure.** Disconnects wait out a grace period before
+   the irreversible parts — handing the game to a new host, dropping someone
+   from the room. A deliberate exit sends `leave_room` and skips the wait; a
+   kick sends `evict_member`, without which a kicked player could refresh their
+   way back in.
+
+4. **Phase timers do not trust the tab.** Transitions are scheduled with
+   `setTimeout` in the host's browser, and browsers throttle background tabs to
+   roughly one timer a minute — a locked phone suspends them outright. A
+   watchdog re-checks the deadline against wall time every few seconds and on
+   tab wake, so the host glancing away no longer freezes the game for everyone.
 
 ## 🤖 Smart AI Integration
 

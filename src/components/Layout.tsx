@@ -7,6 +7,7 @@ import { HowToPlayButton } from './ModeGuide';
 import { VoiceRoomBar } from './VoiceRoom';
 import VoiceControl from './VoiceControl';
 import SoundToggle from './SoundToggle';
+import ConnectionBadge from './ConnectionBadge';
 import { LogOut, AlertTriangle, X, Crown } from 'lucide-react';
 import type { GameModeId } from '../lib/types';
 
@@ -71,6 +72,9 @@ export default function Layout({ children }: LayoutProps) {
         </div>
 
         <div className="flex items-center gap-2 md:gap-3">
+          {/* Only visible when the connection is not healthy. */}
+          <ConnectionBadge />
+
           {showRound && (
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface/60 border border-edge/60">
               <span className="text-[10px] uppercase tracking-[0.18em] text-ink-muted">Round</span>

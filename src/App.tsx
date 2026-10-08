@@ -19,10 +19,11 @@ function LoadingFallback() {
 }
 
 function App() {
-  const { phase, myId, hostId, players, uiScreen, gameMode } = useGameStore(state => ({
+  const { phase, myId, hostId, roomCode, players, uiScreen, gameMode } = useGameStore(state => ({
     phase: state.phase,
     myId: state.myId,
     hostId: state.hostId,
+    roomCode: state.roomCode,
     players: state.players,
     uiScreen: state.uiScreen,
     gameMode: state.gameMode,
@@ -40,9 +41,18 @@ function App() {
     const savedId = myId || undefined;
     networkManager.initialize(savedId, (id) => {
       console.log('Network initialized with ID:', id);
-      if (hostId && hostId !== id) {
+
+      // Rejoin by ROOM CODE, not by host id. They are the same until the host
+      // changes, and different afterwards: the room keeps the code it was
+      // opened with, while `hostId` follows whoever is running it. Passing the
+      // host id meant that after a migration a refresh asked the server for a
+      // room named after the new host — which does not exist — and overwrote
+      // the stored code with it on the way, so the next refresh ejected the
+      // player from the room for real.
+      const room = roomCode ?? hostId;
+      if (room && hostId && hostId !== id) {
         const myName = players[id]?.name || 'Player';
-        networkManager.joinGame(hostId, myName);
+        networkManager.joinGame(room, myName);
       }
     });
   }, []);

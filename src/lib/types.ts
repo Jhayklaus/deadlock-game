@@ -403,6 +403,9 @@ export interface JoinMessage extends BaseMessage {
   payload: { name: string };
 }
 
+/** How the client's socket is doing, surfaced in the header. */
+export type ConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline';
+
 export interface WelcomeMessage extends BaseMessage {
   type: 'WELCOME';
   payload: {

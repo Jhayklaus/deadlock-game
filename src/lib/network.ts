@@ -8,7 +8,7 @@ import { soundManager } from './sound';
 import { getMode } from '../modes/registry';
 import { resolveNight, emptyNightActions, ABILITY_CHARGES } from './nightResolution';
 import { isAdjacent, isVentConnected, SPAWN_ROOM, getRoom } from '../data/deadlockMap';
-import type { ActiveSabotage, SabotageKind } from './types';
+import type { ActiveSabotage, SabotageKind, ConnectionState } from './types';
 import { KILL_COOLDOWN_SECONDS, SABOTAGE_COOLDOWN_SECONDS, SABOTAGE_DURATIONS, SABOTAGE_FIX_ROOM } from '../modes/deadlock';
 import type { NightActions } from './nightResolution';
 // Side-effect import: registers all game modes into the registry
@@ -30,6 +30,14 @@ class NetworkManager {
   private hostPrivateState: HostPrivateState = {};
   // All player mode roles (host only, used for bot AI context + game-over reveal)
   private modeRoles: Record<PlayerId, string> = {};
+  /**
+   * Each player's private assignment, kept so it can be re-sent.
+   *
+   * These used to be built, sent once and dropped. A player who missed the
+   * message — a dropped connection is enough — had no way to ever learn their
+   * own word or number again.
+   */
+  private perPlayerPayloads: Record<PlayerId, Record<string, unknown>> = {};
 
   // Host state for night actions
   private nightActions: NightActions = emptyNightActions();
@@ -69,6 +77,27 @@ class NetworkManager {
 
   /** Periodic snapshot upload, so the room survives losing its host. */
   private stateSyncInterval: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Connection state, published to the UI.
+   *
+   * A dropped socket used to be completely invisible: the screen simply
+   * stopped changing, which reads as "the game is broken" rather than "your
+   * connection went". Players need to be told.
+   */
+  private connection: ConnectionState = 'connecting';
+  private connectionListeners = new Set<(state: ConnectionState) => void>();
+  private netEventsBound = false;
+  /** An unanswered join, retried until the host acknowledges it. */
+  private pendingJoin: { hostId: string; playerName: string; attempts: number } | null = null;
+  private joinRetry: ReturnType<typeof setTimeout> | null = null;
+  private static readonly JOIN_RETRY_MS = 2500;
+  private static readonly JOIN_ATTEMPTS = 6;
+
+  /** Safety net for phase timers that a throttled tab never fired. */
+  private phaseWatchdog: ReturnType<typeof setInterval> | null = null;
+  private onVisible: (() => void) | null = null;
+  /** The last phase deadline already resolved, so it cannot resolve twice. */
+  private lastResolvedDeadline: string | null = null;
 
   /**
    * Everything a replacement host needs to keep running the game.
@@ -83,6 +112,7 @@ class NetworkManager {
           activeModeId: this.activeModeId,
           hostPrivateState: this.hostPrivateState,
           modeRoles: this.modeRoles,
+          perPlayerPayloads: this.perPlayerPayloads,
           nightActions: this.nightActions,
           dayVotes: this.dayVotes,
           trialVerdicts: this.trialVerdicts,
@@ -110,6 +140,7 @@ class NetworkManager {
       this.activeModeId = snapshot.activeModeId ?? 'classic_mafia';
       this.hostPrivateState = snapshot.hostPrivateState ?? {};
       this.modeRoles = snapshot.modeRoles ?? {};
+      this.perPlayerPayloads = snapshot.perPlayerPayloads ?? {};
       this.nightActions = snapshot.nightActions ?? emptyNightActions();
       this.dayVotes = snapshot.dayVotes ?? {};
       this.trialVerdicts = snapshot.trialVerdicts ?? {};
@@ -125,6 +156,39 @@ class NetworkManager {
       if (snapshot.gameMode) store.setGameMode(snapshot.gameMode);
       if (typeof snapshot.round === 'number') store.setRound(snapshot.round);
       store.setAccused(snapshot.accusedId ?? null);
+  }
+
+  /**
+   * Catches a phase whose timer never fired.
+   *
+   * Phase transitions hang off `setTimeout` in the host's tab, and browsers
+   * throttle background tabs to roughly one timer a minute — a locked phone
+   * suspends them outright. The host glancing away therefore froze the game
+   * for everyone until they looked back. This re-checks the deadline on a
+   * cadence and whenever the tab wakes, so the clock is driven by wall time
+   * rather than by the tab staying awake.
+   */
+  private startPhaseWatchdog() {
+      this.stopPhaseWatchdog();
+
+      const check = () => {
+          const store = useGameStore.getState();
+          if (store.myId !== store.hostId) return;
+          if (store.phase === 'lobby' || store.phase === 'game_over') return;
+          if (!store.timerEnd || Date.now() < store.timerEnd) return;
+          this.handlePhaseTimeout(store.phase);
+      };
+
+      this.phaseWatchdog = setInterval(check, 2000);
+      this.onVisible = () => { if (document.visibilityState === 'visible') check(); };
+      document.addEventListener('visibilitychange', this.onVisible);
+  }
+
+  private stopPhaseWatchdog() {
+      if (this.phaseWatchdog) clearInterval(this.phaseWatchdog);
+      this.phaseWatchdog = null;
+      if (this.onVisible) document.removeEventListener('visibilitychange', this.onVisible);
+      this.onVisible = null;
   }
 
   /** Streams state to the server while we are the host. */
@@ -165,6 +229,7 @@ class NetworkManager {
 
       this.restoreHostState(snapshot);
       this.startStateSync();
+      this.startPhaseWatchdog();
       this.broadcastSystemMessage('The host disconnected. You are now running the game.');
       this.broadcastPlayerUpdate();
 
@@ -178,6 +243,64 @@ class NetworkManager {
       setTimeout(() => this.handlePhaseTimeout(phase), Math.max(0, remaining));
   }
 
+  private bindNetworkEvents() {
+      if (typeof window === 'undefined' || this.netEventsBound) return;
+      this.netEventsBound = true;
+
+      window.addEventListener('offline', () => {
+          if (this.connection === 'online') this.setConnection('reconnecting');
+      });
+
+      window.addEventListener('online', () => this.reconcileConnection());
+
+      // The browser's offline event can fire for an outage shorter than the
+      // ping timeout, in which case the socket never actually drops and no
+      // `connect` event ever arrives to clear the warning. Reconciling against
+      // the socket itself means the badge cannot get stuck disagreeing with
+      // reality in either direction.
+      setInterval(() => this.reconcileConnection(), 3000);
+  }
+
+  private reconcileConnection() {
+      if (!this.socket) return;
+
+      // `navigator.onLine === false` is the one signal that settles it: with
+      // no network nothing can get through, whatever socket.io still believes
+      // (it keeps thinking it is connected until a ping times out). The
+      // reverse is not true — online only means a network exists — so a
+      // connected socket is what confirms we are actually back.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          this.setConnection('reconnecting');
+          return;
+      }
+
+      if (this.socket.connected) {
+          this.setConnection('online');
+          return;
+      }
+
+      this.setConnection(this.connection === 'connecting' ? 'connecting' : 'reconnecting');
+      // On a network but not connected: stop waiting out the retry backoff.
+      this.socket.connect();
+  }
+
+  getConnectionState(): ConnectionState {
+      return this.connection;
+  }
+
+  /** Subscribe to connection changes. Returns an unsubscribe function. */
+  onConnectionChange(fn: (state: ConnectionState) => void): () => void {
+      this.connectionListeners.add(fn);
+      fn(this.connection);
+      return () => this.connectionListeners.delete(fn);
+  }
+
+  private setConnection(state: ConnectionState) {
+      if (this.connection === state) return;
+      this.connection = state;
+      this.connectionListeners.forEach(fn => fn(state));
+  }
+
   // Initialize Socket
   initialize(existingId?: string, onOpen?: (id: string) => void) {
     if (this.socket) {
@@ -188,10 +311,32 @@ class NetworkManager {
     
     this.socket = io(SERVER_URL);
 
+    this.setConnection('connecting');
+
+    // socket.io only notices a silent network drop when a ping times out,
+    // which is tens of seconds of the player staring at a frozen screen. The
+    // browser knows at once, so trust it for the badge and use its recovery
+    // signal to stop waiting out the retry backoff.
+    this.bindNetworkEvents();
+
     this.socket.on('connect', () => {
       console.log('Connected to server');
-      // Register with our ID
-      this.socket?.emit('register', myId);
+      this.setConnection('online');
+      // Register with our ID. On a reconnect this is also what puts us back
+      // into our socket.io room, which membership does not survive on its own.
+      // The room code goes with it: if we have moved on — followed an invite
+      // to a different room, or quit — the server must release the old one
+      // rather than restoring us into it.
+      this.socket?.emit('register', myId, useGameStore.getState().roomCode ?? null);
+
+      // If a join was still unanswered when we dropped, ask again now rather
+      // than waiting out the retry interval.
+      if (this.pendingJoin) {
+          this.socket?.emit('join_game', {
+              hostId: this.pendingJoin.hostId,
+              playerName: this.pendingJoin.playerName,
+          });
+      }
     });
 
     this.socket.on('registered', (id: string) => {
@@ -202,6 +347,17 @@ class NetworkManager {
       // Restore Host Timers
       const store = useGameStore.getState();
       if (!this.roomId) this.roomId = store.roomCode ?? store.hostId;
+
+      // A host who reloaded the page is still the host, but the loops that
+      // make hosting survivable died with the old page: snapshot uploads (so
+      // the room can outlive them) and the phase watchdog. Neither was being
+      // restarted, so a host refresh quietly left the room with nothing to
+      // migrate to.
+      if (store.myId === store.hostId && store.hostId) {
+          this.startStateSync();
+          this.startPhaseWatchdog();
+      }
+
       if (store.myId === store.hostId && store.timerEnd && store.phase !== 'lobby' && store.phase !== 'game_over') {
           const remaining = store.timerEnd - Date.now();
           console.log(`Restoring host timer for ${store.phase}, remaining: ${remaining}ms`);
@@ -232,6 +388,22 @@ class NetworkManager {
         this.handleMessage(message);
     });
 
+    /**
+     * A player's socket reconnected. Whatever was broadcast while they were
+     * away is gone, so push the current state at them rather than waiting for
+     * them to notice something is wrong — they cannot tell.
+     */
+    this.socket.on('player_resync', ({ senderId }: { senderId: string }) => {
+        const store = useGameStore.getState();
+        if (store.myId !== store.hostId) return;
+        // They are back, so undo the offline mark their drop caused.
+        if (store.players[senderId]) {
+            store.updatePlayer(senderId, { isOnline: true });
+            this.broadcastPlayerUpdate();
+        }
+        this.sendCatchUp(senderId);
+    });
+
     this.socket.on('host_migrated', ({ roomId, newHostId, snapshot }: {
         roomId: string; newHostId: string; snapshot: ReturnType<NetworkManager['captureHostState']> | null;
     }) => {
@@ -247,16 +419,24 @@ class NetworkManager {
       }
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('Disconnected from server');
+    this.socket.on('disconnect', (reason: string) => {
+      console.log('Disconnected from server:', reason);
+      // socket.io retries by itself unless the server deliberately closed us.
+      this.setConnection(reason === 'io server disconnect' ? 'offline' : 'reconnecting');
     });
 
-    this.socket.on('connect_error', (err: any) => {
+    this.socket.on('connect_error', (err: Error) => {
       console.error('Socket connection error:', err);
-      useGameStore.getState().setError('Connection error: ' + err.message);
+      this.setConnection('reconnecting');
+      // No error toast here: socket.io retries on its own, and a toast per
+      // attempt buried the screen in noise during a brief outage. The
+      // connection badge carries this now.
     });
 
     this.socket.on('error_message', ({ message }: { message: string }) => {
+        // The room really is gone, as opposed to the host being briefly away,
+        // so stop retrying and say so.
+        this.clearPendingJoin();
         useGameStore.getState().setError(message);
     });
   }
@@ -266,7 +446,14 @@ class NetworkManager {
       // (e.g. an eliminated impostor submits their guess early), which leaves
       // an orphaned setTimeout behind. Without this guard that stale timer
       // fires into the *next* round and resolves it a second time.
-      if (useGameStore.getState().phase !== phase) return;
+      const store = useGameStore.getState();
+      if (store.phase !== phase) return;
+
+      // The scheduled timer and the watchdog can both come due for the same
+      // deadline. A deadline is resolved once.
+      const deadline = `${phase}:${store.timerEnd ?? 0}:${store.round}`;
+      if (this.lastResolvedDeadline === deadline) return;
+      this.lastResolvedDeadline = deadline;
 
       if (this.activeModeId === 'classic_mafia') {
           // ── Classic Mafia: original hardcoded phase transitions ────────────
@@ -699,7 +886,12 @@ class NetworkManager {
 
   disconnect() {
     this.stopStateSync();
+    this.stopPhaseWatchdog();
+    this.clearPendingJoin();
     if (this.socket) {
+      // Distinguish quitting from dropping out, so the server releases our
+      // place instead of holding it open and restoring us on the next load.
+      this.socket.emit('leave_room');
       this.socket.disconnect();
       this.socket = null;
     }
@@ -726,6 +918,7 @@ class NetworkManager {
         this.roomId = myId;
         useGameStore.getState().setRoomCode(myId);
         this.startStateSync();
+        this.startPhaseWatchdog();
     });
   }
 
@@ -762,6 +955,41 @@ class NetworkManager {
     this.roomId = hostId;
     useGameStore.getState().setRoomCode(hostId);
     this.socket.emit('join_game', { hostId, playerName });
+
+    // A join is announced to the host with a single message. If the host's
+    // connection happens to be down at that moment — a blip of a couple of
+    // seconds is enough — the announcement is dropped and nobody notices: the
+    // joiner sits on an empty lobby forever and the host never learns they
+    // exist. Keep asking until the host answers with a WELCOME.
+    this.pendingJoin = { hostId, playerName, attempts: 0 };
+    this.scheduleJoinRetry();
+  }
+
+  private scheduleJoinRetry() {
+    if (this.joinRetry) clearTimeout(this.joinRetry);
+    this.joinRetry = setTimeout(() => {
+      const pending = this.pendingJoin;
+      if (!pending || !this.socket) return;
+
+      pending.attempts += 1;
+      if (pending.attempts > NetworkManager.JOIN_ATTEMPTS) {
+        this.pendingJoin = null;
+        useGameStore.getState().setError(
+          'Could not reach the host. They may have closed the room — check the code and try again.'
+        );
+        return;
+      }
+
+      this.socket.emit('join_game', { hostId: pending.hostId, playerName: pending.playerName });
+      this.scheduleJoinRetry();
+    }, NetworkManager.JOIN_RETRY_MS);
+  }
+
+  /** The host answered, so stop asking. */
+  private clearPendingJoin() {
+    this.pendingJoin = null;
+    if (this.joinRetry) clearTimeout(this.joinRetry);
+    this.joinRetry = null;
   }
 
   /** Host calls this from the Lobby to change the selected mode. */
@@ -879,6 +1107,7 @@ class NetworkManager {
           const { perPlayerPayloads, hostPrivateState } = mode.buildGameStartData(
               playerIds, modeRoles, store.settings
           );
+          this.perPlayerPayloads = perPlayerPayloads as Record<PlayerId, Record<string, unknown>>;
           // Store private state on Host — NEVER broadcast.
           // `round` drives the multi-round loop; `maxRounds` caps a table that
           // keeps skipping its votes so a game can never loop forever.
@@ -2343,48 +2572,18 @@ class NetworkManager {
               store.addPlayer(newPlayer);
           }
 
-          this.sendMessage(message.senderId, {
-            type: 'WELCOME',
-            senderId: store.myId,
-            payload: {
-              hostId: store.myId,
-              players: store.players,
-              phase: store.phase,
-              settings: store.settings,
-              gameMode: store.gameMode,
-            }
-          });
-
-          // If game is in progress, help the player catch up
-          if (store.phase !== 'lobby' && store.phase !== 'game_over') {
-              const timerEnd = store.timerEnd || undefined;
-              this.sendMessage(message.senderId, {
-                  type: 'PHASE_CHANGE',
-                  senderId: store.myId,
-                  payload: { phase: store.phase, timerEnd }
-              });
-              
-              if (store.allRoles) {
-                  const role = store.allRoles[message.senderId];
-                  if (role) {
-                      const mafiaPartners = role === 'mafia' 
-                          ? Object.entries(store.allRoles).filter(([_, r]) => r === 'mafia').map(([id]) => id)
-                          : undefined;
-                      
-                      this.sendMessage(message.senderId, {
-                          type: 'ROLE_ASSIGN',
-                          senderId: store.myId,
-                          payload: { role, mafiaPartners }
-                      });
-                  }
-              }
-          }
+          // One catch-up path for joining and for reconnecting. The old
+          // inline version only restored a classic Role, so a player rejoining
+          // a side mode lost their word and a Deadlock player lost their tasks.
+          this.sendCatchUp(message.senderId);
 
           this.broadcastPlayerUpdate();
         }
         break;
 
       case 'WELCOME':
+        // The host has us on their roster; stop retrying the join.
+        this.clearPendingJoin();
         store.setHostId(message.payload.hostId);
         store.setPlayers(message.payload.players);
         store.setPhase(message.payload.phase);
@@ -2850,11 +3049,138 @@ class NetworkManager {
       };
       this.sendMessage(targetId, kickMsg);
 
-      // 2. Remove from local store (Host)
+      // 2. Drop them server-side too. A kick used to be local to the host, so
+      //    the server still counted them as a member of the room — and since
+      //    reconnects now restore membership, refreshing would have walked
+      //    them straight back in.
+      this.socket?.emit('evict_member', { targetId });
+
+      // 3. Remove from local store (Host)
       store.removePlayer(targetId);
 
-      // 3. Broadcast update to everyone else
+      // 4. Broadcast update to everyone else
       this.broadcastPlayerUpdate();
+  }
+
+  /**
+   * Brings one player fully up to date, as the host.
+   *
+   * Everything the room learns arrives as a one-shot message. A player who was
+   * offline for even a moment misses whatever was sent in that window, and
+   * nothing ever re-sends it — the symptom being a player left on the lobby
+   * screen because GAME_START went out while their phone was locked.
+   *
+   * This re-states the whole picture for them: the public game state, the
+   * current phase and its clock, and their own private assignment. It is safe
+   * to call repeatedly, and it is the single catch-up path for both a fresh
+   * join and a reconnect.
+   */
+  private sendCatchUp(playerId: PlayerId) {
+      const store = useGameStore.getState();
+      if (store.myId !== store.hostId || playerId === store.myId) return;
+      // Someone kicked, or who left, is not owed the game state.
+      if (!store.players[playerId]) return;
+
+      this.sendMessage(playerId, {
+          type: 'WELCOME',
+          senderId: store.myId,
+          payload: {
+              hostId: store.myId,
+              players: store.players,
+              phase: store.phase,
+              settings: store.settings,
+              gameMode: store.gameMode,
+          }
+      });
+
+      if (store.phase === 'lobby' || store.phase === 'game_over') return;
+
+      // The phase, its deadline, and whatever that phase needs on screen.
+      this.sendMessage(playerId, {
+          type: 'PHASE_CHANGE',
+          senderId: store.myId,
+          payload: {
+              phase: store.phase,
+              timerEnd: store.timerEnd || undefined,
+              payload: {
+                  round: store.round,
+                  accusedId: store.accusedId ?? undefined,
+                  eliminationResult: store.eliminationResult ?? undefined,
+                  lastNightResult: store.lastNightResult || undefined,
+              },
+          }
+      });
+
+      // Their own secret. Classic carries a Role; every mode carries a
+      // MODE_ASSIGN, which is what the side modes and Deadlock read.
+      const role = store.allRoles?.[playerId];
+      if (role) {
+          const mafiaPartners = isMafiaRole(role)
+              ? Object.entries(store.allRoles ?? {}).filter(([, r]) => isMafiaRole(r)).map(([id]) => id)
+              : undefined;
+          this.sendMessage(playerId, {
+              type: 'ROLE_ASSIGN',
+              senderId: store.myId,
+              payload: { role, mafiaPartners }
+          });
+      }
+
+      const modeRoleId = this.modeRoles[playerId] ?? role;
+      if (modeRoleId) {
+          const payload = this.perPlayerPayloads[playerId] ?? {};
+          let assignedWord = (payload.assignedWord as string | null) ?? null;
+          let assignedCategory = (payload.assignedCategory as string | null) ?? null;
+          // Frequency Spy stores its prompt under different keys, the same
+          // remapping the initial deal does.
+          if (this.activeModeId === 'frequency_spy' && payload.frequencyTopic) {
+              assignedWord = payload.frequencyTopic as string;
+              assignedCategory = `${payload.frequencyLowLabel}|${payload.frequencyHighLabel}`;
+          }
+          this.sendMessage(playerId, {
+              type: 'MODE_ASSIGN',
+              senderId: store.myId,
+              payload: {
+                  modeId: this.activeModeId,
+                  modeRoleId: modeRoleId as ModeRoleId,
+                  assignedWord,
+                  assignedCategory,
+                  assignedNumber: (payload.assignedNumber as number | null) ?? null,
+                  commonWord: (payload.commonWord as string | null) ?? null,
+                  tasks: payload.tasks as string[] | undefined,
+              }
+          });
+      }
+
+      // Deadlock's board is pure broadcast, so a missed one leaves the map blank.
+      if (this.activeModeId === 'deadlock') {
+          this.sendMessage(playerId, {
+              type: 'DEADLOCK_STATE',
+              senderId: store.myId,
+              payload: {
+                  positions: (this.hostPrivateState.positions as Record<string, string>) ?? {},
+                  bodies: this.dlRead<Array<{ playerId: string; roomId: string }>>('bodiesJson', []),
+                  tasksCompleted: Number(this.hostPrivateState.tasksCompleted ?? 0),
+                  tasksTotal: Number(this.hostPrivateState.tasksTotal ?? 0),
+                  sabotage: this.dlRead<ActiveSabotage | null>('sabotageJson', null),
+              }
+          });
+      }
+
+      if (store.taskProgress.required > 0) {
+          this.sendMessage(playerId, {
+              type: 'TASK_PROGRESS',
+              senderId: store.myId,
+              payload: store.taskProgress,
+          });
+      }
+
+      if (store.phase === 'voting' && Object.keys(store.voteCounts).length > 0) {
+          this.sendMessage(playerId, {
+              type: 'VOTE_UPDATE',
+              senderId: store.myId,
+              payload: { voteCounts: store.voteCounts },
+          });
+      }
   }
 
   // Send Message (replaced PeerJS DataConnection with Socket.IO)

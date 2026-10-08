@@ -108,7 +108,10 @@ export default function Layout({ children }: LayoutProps) {
                 if (confirm('Are you sure you want to exit?')) {
                   networkManager.disconnect();
                   localStorage.removeItem('tno-game-storage');
-                  window.location.reload();
+                  // Go to the root rather than reloading: the current URL is
+                  // an invite link, and reloading it would rejoin the room
+                  // the player just chose to leave.
+                  window.location.href = '/';
                 }
               }}
               className="p-2 rounded-xl text-ink-muted hover:text-danger hover:bg-danger/10 transition-colors"

@@ -5,6 +5,8 @@ import { GameState, Player, PlayerId, GamePhase, Role, GameSettings, ChatMessage
 interface GameActions {
   setMyId: (id: PlayerId) => void;
   setHostId: (id: PlayerId) => void;
+  setRoomCode: (code: string | null) => void;
+  setPendingJoinCode: (code: string | null) => void;
   addPlayer: (player: Player) => void;
   updatePlayer: (id: PlayerId, updates: Partial<Player>) => void;
   removePlayer: (id: PlayerId) => void;
@@ -108,6 +110,8 @@ const DEFAULT_DEADLOCK = {
 const initialState: GameState = {
   hostId: null,
   myId: '',
+  roomCode: null,
+  pendingJoinCode: null,
   players: {},
   phase: 'lobby',
   error: null,
@@ -156,6 +160,8 @@ export const useGameStore = create<GameState & GameActions>()(
 
       setMyId: (id) => set({ myId: id }),
       setHostId: (id) => set({ hostId: id }),
+      setRoomCode: (roomCode) => set({ roomCode }),
+      setPendingJoinCode: (pendingJoinCode) => set({ pendingJoinCode }),
       
       addPlayer: (player) => set((state) => ({
         players: { ...state.players, [player.id]: player }
@@ -200,7 +206,10 @@ export const useGameStore = create<GameState & GameActions>()(
         set((state) => ({
         ...initialState,
         myId: state.myId,
-        settings: state.settings
+        settings: state.settings,
+        // An invite link resets the session before it hands over its code, so
+        // the code has to survive the reset.
+        pendingJoinCode: state.pendingJoinCode,
       }))
       },
 
@@ -289,6 +298,7 @@ export const useGameStore = create<GameState & GameActions>()(
       partialize: (state) => ({
         hostId: state.hostId,
         myId: state.myId,
+        roomCode: state.roomCode,
         players: state.players,
         phase: state.phase,
         myRole: state.myRole,

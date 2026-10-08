@@ -1,12 +1,11 @@
 import { useLobbyState } from '../../../hooks/useLobbyState';
+import InviteBar from '../../InviteBar';
 import { networkManager } from '../../../lib/network';
 import { clsx } from 'clsx';
 import GameSettingsUI from '../../GameSettingsUI';
 import ModeSelector from '../../ModeSelector/ModeSelector';
 import { VoiceRoomBar } from '../../VoiceRoom';
-import {
-  Users, Copy, Check, Play, Bot, Crown, ShieldAlert, X, Settings, Hash,
-} from 'lucide-react';
+import { Users, Play, Bot, Crown, ShieldAlert, X, Settings } from 'lucide-react';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Badge } from '../../ui/Badge';
@@ -15,8 +14,8 @@ import { Modal } from '../../ui/Modal';
 export default function LobbyRoom() {
   const {
     myId, players, isHost,
-    copySuccess, isSettingsOpen, setIsSettingsOpen,
-    copyToClipboard, startGame, addBot, kickPlayer,
+    isSettingsOpen, setIsSettingsOpen,
+    startGame, addBot, kickPlayer,
     playerCount, minPlayers, canStart,
   } = useLobbyState();
 
@@ -36,25 +35,7 @@ export default function LobbyRoom() {
           </div>
         </div>
 
-        {isHost && (
-          <div className="flex flex-col items-center md:items-end gap-1.5 w-full md:w-auto">
-            <span className="text-[10px] font-semibold text-ink-muted uppercase tracking-[0.2em] flex items-center gap-1.5">
-              <Hash size={11} /> Room Code
-            </span>
-            <div className="flex items-center gap-1 bg-base/60 py-2 pl-4 pr-2 rounded-xl border border-edge/60
-              transition-colors hover:border-accent/40 w-full md:w-auto justify-between">
-              <code className="text-2xl font-mono font-bold text-accent tracking-[0.2em]">{myId}</code>
-              <button
-                onClick={copyToClipboard}
-                className="p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-surface transition-colors"
-                title="Copy room code"
-                aria-label="Copy room code"
-              >
-                {copySuccess ? <Check size={17} className="text-success" /> : <Copy size={17} />}
-              </button>
-            </div>
-          </div>
-        )}
+        {isHost && <InviteBar className="w-full md:w-auto" />}
       </Card>
 
       <VoiceRoomBar />

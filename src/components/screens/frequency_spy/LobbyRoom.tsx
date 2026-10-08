@@ -1,8 +1,9 @@
 import { useLobbyState } from '../../../hooks/useLobbyState';
+import InviteBar from '../../InviteBar';
 import { clsx } from 'clsx';
 import GameSettingsUI from '../../GameSettingsUI';
 import ModeSelector from '../../ModeSelector/ModeSelector';
-import { Users, Copy, Check, Play, Server, Bot, Crown, ShieldAlert, X, Settings, Radio } from 'lucide-react';
+import { Users, Play, Server, Bot, Crown, ShieldAlert, X, Settings, Radio } from 'lucide-react';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Badge } from '../../ui/Badge';
@@ -12,8 +13,8 @@ import { VoiceRoomBar } from '../../VoiceRoom';
 export default function LobbyRoom() {
   const {
     myId, players, isHost,
-    copySuccess, isSettingsOpen, setIsSettingsOpen,
-    copyToClipboard, startGame, addBot, kickPlayer,
+    isSettingsOpen, setIsSettingsOpen,
+    startGame, addBot, kickPlayer,
     playerCount, minPlayers, canStart,
   } = useLobbyState();
 
@@ -31,22 +32,7 @@ export default function LobbyRoom() {
             <p className="text-cyan-500/70 text-sm font-share-tech">// one signal is off. find the spy.</p>
           </div>
         </div>
-        {isHost && (
-          <div className="flex flex-col items-center md:items-end gap-2 z-10 w-full md:w-auto">
-            <span className="text-xs font-bold text-cyan-500/60 uppercase tracking-widest flex items-center gap-2 font-share-tech">
-              <ShieldAlert size={12} /> ACCESS CODE
-            </span>
-            <div className="flex items-center gap-2 bg-cyan-950/50 p-2 pr-3 pl-4 rounded-xl border border-cyan-800/40 shadow-inner w-full md:w-auto justify-between md:justify-start">
-              <code className="text-2xl font-mono font-bold text-cyan-300 tracking-[0.2em] font-share-tech">{myId}</code>
-              <div className="flex items-center">
-                <div className="h-8 w-px bg-cyan-800/40 mx-2"></div>
-                <button onClick={copyToClipboard} className="p-2 hover:bg-cyan-900/30 rounded-lg transition-colors text-cyan-400 hover:text-white" title="Copy Code">
-                  {copySuccess ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} />}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {isHost && <InviteBar label="Access Code" className="z-10 w-full md:w-auto" />}
       </Card>
 
       {/* Shown to everyone once the host sets a voice room. */}

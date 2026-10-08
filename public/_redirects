@@ -1,0 +1,4 @@
+# Invite links are real paths (/deadlock/4F2K9Q), so every unknown path has to
+# fall through to the app shell or the link 404s.
+# Netlify and Cloudflare Pages both read this file.
+/*  /index.html  200

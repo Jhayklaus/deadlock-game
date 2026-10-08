@@ -25,7 +25,7 @@ interface GameActions {
   setSettings: (settings: GameSettings) => void;
   addMessage: (message: ChatMessage) => void;
   setTimerEnd: (timestamp: number | null) => void;
-  setMyDeathReason: (reason: string | null) => void;
+  setMyDeathReason: (reason: string | null, killedBy?: string | null) => void;
   setTypingPlayers: (typingPlayers: Record<PlayerId, boolean>) => void;
   // v2: mode actions
   setGameMode: (mode: GameModeId) => void;
@@ -59,6 +59,7 @@ interface GameActions {
 const DEFAULT_SETTINGS: GameSettings = {
   voiceRoomUrl: null,
   nightTasksEnabled: true,
+  revealRoleOnElimination: false,
   // Deadlock
   deadlockImpostors: 1,
   deadlockTasks: 3,
@@ -126,6 +127,7 @@ const initialState: GameState = {
   messages: [],
   timerEnd: null,
   myDeathReason: null,
+  myKilledBy: null,
   typingPlayers: {},
   // v2
   gameMode: 'classic_mafia',
@@ -195,7 +197,7 @@ export const useGameStore = create<GameState & GameActions>()(
       setLastNightResult: (result) => set({ lastNightResult: result }),
       setEliminationResult: (result) => set({ eliminationResult: result }),
       setVoteCounts: (voteCounts) => set({ voteCounts }),
-      setMyDeathReason: (reason) => set({ myDeathReason: reason }),
+      setMyDeathReason: (reason, killedBy = null) => set({ myDeathReason: reason, myKilledBy: killedBy }),
       
       setGameOver: (winner, allRoles) => set({ winner, allRoles, phase: 'game_over' }),
 
@@ -224,6 +226,8 @@ export const useGameStore = create<GameState & GameActions>()(
           players: resetPlayers,
           myRole: null,
           mafiaPartners: [],
+          myDeathReason: null,
+          myKilledBy: null,
           lastNightResult: '',
           eliminationResult: null,
           voteCounts: {},
@@ -305,6 +309,10 @@ export const useGameStore = create<GameState & GameActions>()(
         mafiaPartners: state.mafiaPartners,
         lastNightResult: state.lastNightResult,
         eliminationResult: state.eliminationResult,
+        // Kept across a refresh: being told how (and by whom) you died is a
+        // one-shot private message, so losing it on reload loses it for good.
+        myDeathReason: state.myDeathReason,
+        myKilledBy: state.myKilledBy,
         winner: state.winner,
         allRoles: state.allRoles,
         settings: state.settings,

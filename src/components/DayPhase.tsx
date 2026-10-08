@@ -12,7 +12,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 
 export default function DayPhase() {
-  const { lastNightResult, players, myId, phase, isAlive, voteCounts, myDeathReason } = useGameStore(state => ({
+  const { lastNightResult, players, myId, phase, isAlive, voteCounts, myDeathReason, myKilledBy } = useGameStore(state => ({
     lastNightResult: state.lastNightResult,
     players: state.players,
     myId: state.myId,
@@ -20,6 +20,7 @@ export default function DayPhase() {
     isAlive: state.players[state.myId]?.isAlive,
     voteCounts: state.voteCounts,
     myDeathReason: state.myDeathReason,
+    myKilledBy: state.myKilledBy,
   }));
 
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
@@ -48,8 +49,22 @@ export default function DayPhase() {
           <h2 className="font-display text-3xl text-danger mb-3">You are dead</h2>
           <p className="text-ink-muted text-sm mb-6">You can watch, but you cannot speak to the living.</p>
           {myDeathReason && (
-            <div className="bg-red-950/50 border border-red-900/50 p-4 rounded-xl mb-6 w-full">
+            <div className="bg-red-950/50 border border-red-900/50 p-4 rounded-xl mb-4 w-full">
                 <p className="text-red-300 font-semibold">{myDeathReason}</p>
+            </div>
+          )}
+
+          {/* Yours alone — never posted to dead chat, which a living Medium
+              reads. Telling the others is your decision. */}
+          {myKilledBy && (
+            <div className="mb-6 w-full rounded-xl border border-danger/40 bg-danger/10 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ink-muted">
+                Killed by
+              </p>
+              <p className="mt-1 text-xl font-bold text-danger">{myKilledBy}</p>
+              <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+                Only you know this.
+              </p>
             </div>
           )}
           <p className="text-ink-muted italic mb-8">"{lastNightResult}"</p>

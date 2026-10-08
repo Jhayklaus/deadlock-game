@@ -62,8 +62,19 @@ export interface NightInput {
 }
 
 export interface NightOutcome {
-  /** In the order they were decided. */
-  readonly deaths: ReadonlyArray<{ playerId: PlayerId; reason: string }>;
+  /**
+   * In the order they were decided.
+   *
+   * `killerIds` names whoever was responsible, so the victim — and only the
+   * victim — can be told who it was. Several ids when a Mafia pack all voted
+   * the same target; empty when nobody is to blame (a Vigilante's guilt, a
+   * Bodyguard dying at their post).
+   */
+  readonly deaths: ReadonlyArray<{
+    playerId: PlayerId;
+    reason: string;
+    killerIds: ReadonlyArray<PlayerId>;
+  }>;
   readonly saved: ReadonlyArray<PlayerId>;
   readonly privateMessages: ReadonlyArray<{ playerId: PlayerId; content: string }>;
   readonly charges: Record<PlayerId, number>;
@@ -77,15 +88,15 @@ export function resolveNight(input: NightInput): NightOutcome {
   const nameOf = (id: PlayerId) => names[id] ?? 'someone';
   const isAlive = (id: PlayerId) => alive.has(id);
 
-  const deaths: Array<{ playerId: PlayerId; reason: string }> = [];
+  const deaths: Array<{ playerId: PlayerId; reason: string; killerIds: PlayerId[] }> = [];
   const saved = new Set<PlayerId>();
   const messages: Array<{ playerId: PlayerId; content: string }> = [];
 
   const say = (playerId: PlayerId, content: string) => messages.push({ playerId, content });
   const died = (id: PlayerId) => deaths.some(d => d.playerId === id);
-  const kill = (playerId: PlayerId, reason: string) => {
+  const kill = (playerId: PlayerId, reason: string, killerIds: PlayerId[] = []) => {
     if (died(playerId)) return;
-    deaths.push({ playerId, reason });
+    deaths.push({ playerId, reason, killerIds });
   };
 
   const chargesLeft = (id: PlayerId): number => {
@@ -177,7 +188,7 @@ export function resolveNight(input: NightInput): NightOutcome {
     visits
       .filter(v => v.targetId === vetId && v.actorId !== vetId)
       .forEach(v => {
-        kill(v.actorId, 'You visited a Veteran who was on alert.');
+        kill(v.actorId, 'You visited a Veteran who was on alert.', [vetId]);
         say(vetId, `You shot ${nameOf(v.actorId)} at your door.`);
       });
   });
@@ -201,7 +212,7 @@ export function resolveNight(input: NightInput): NightOutcome {
   });
 
   /** Applies one attack. A Bodyguard trades their life for the target, once. */
-  const attack = (targetId: PlayerId, reason: string) => {
+  const attack = (targetId: PlayerId, reason: string, killerIds: PlayerId[] = []) => {
     if (!isAlive(targetId) || died(targetId)) return;
 
     if (onAlert.has(targetId)) {
@@ -210,7 +221,7 @@ export function resolveNight(input: NightInput): NightOutcome {
     }
     const guard = (bodyguardFor[targetId] ?? []).find(id => !died(id));
     if (guard) {
-      kill(guard, 'You died defending the person you were protecting.');
+      kill(guard, 'You died defending the person you were protecting.', killerIds);
       saved.add(targetId);
       say(targetId, 'You were attacked, but your Bodyguard took the blow.');
       return;
@@ -225,19 +236,20 @@ export function resolveNight(input: NightInput): NightOutcome {
       say(targetId, 'Your vest stopped the attack.');
       return;
     }
-    kill(targetId, reason);
+    kill(targetId, reason, killerIds);
   };
 
   // ── 6. Attacks ─────────────────────────────────────────────────────────────
   // Filter by attacker, not just by target: a mafioso who died at stage 4
   // (shot at an alerted Veteran's door) must not still complete their kill.
-  const mafiaTargetsLanded = new Set(
-    Object.entries(a.mafiaVote)
-      .filter(([actorId]) => isAlive(actorId) && !died(actorId))
-      .map(([, targetId]) => targetId)
-  );
+  const landedMafia = Object.entries(a.mafiaVote)
+    .filter(([actorId]) => isAlive(actorId) && !died(actorId));
+  const mafiaTargetsLanded = new Set(landedMafia.map(([, targetId]) => targetId));
   mafiaTargetsLanded.forEach(targetId => {
-    attack(targetId, 'You were killed by the Mafia.');
+    // Everyone who voted this target shares the blame, so the victim can be
+    // told exactly who came for them.
+    const killers = landedMafia.filter(([, t]) => t === targetId).map(([actorId]) => actorId);
+    attack(targetId, 'You were killed by the Mafia.', killers);
   });
 
   Object.entries(a.vigilanteTargets).forEach(([vigId, targetId]) => {
@@ -249,12 +261,12 @@ export function resolveNight(input: NightInput): NightOutcome {
       say(vigId, 'You aimed at a Town member. Overcome with guilt, you took your own life.');
       return;
     }
-    attack(targetId, `You were shot by a Vigilante (${nameOf(vigId)}).`);
+    attack(targetId, `You were shot by a Vigilante (${nameOf(vigId)}).`, [vigId]);
   });
 
   Object.entries(a.serialKillerTargets).forEach(([skId, targetId]) => {
     if (!isAlive(skId) || died(skId)) return;
-    attack(targetId, `You were killed by a Serial Killer (${nameOf(skId)}).`);
+    attack(targetId, `You were killed by a Serial Killer (${nameOf(skId)}).`, [skId]);
   });
 
   // ── 7. Information ─────────────────────────────────────────────────────────

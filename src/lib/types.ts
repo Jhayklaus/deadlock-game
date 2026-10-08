@@ -223,6 +223,8 @@ export interface GameState {
   messages: ChatMessage[];
   timerEnd: number | null;
   myDeathReason: string | null;
+  /** Who killed me, for my eyes only. Null when nobody is to blame. */
+  myKilledBy: string | null;
   typingPlayers: Record<PlayerId, boolean>;
   // v2: game mode fields
   gameMode: GameModeId;
@@ -313,6 +315,15 @@ export interface GameSettings {
   nightTasksEnabled?: boolean;
   /** Put the accused on trial before eliminating them. Classic Mafia only. */
   trialEnabled?: boolean;
+  /**
+   * Announce what the eliminated player was on the reveal card.
+   *
+   * Off by default: not revealing is the harder, more interesting variant —
+   * the town has to argue about whether the lynch was right instead of being
+   * told. The win announcement still ends the game, so nothing is lost when
+   * the last impostor goes.
+   */
+  revealRoleOnElimination?: boolean;
   /** Seconds the accused gets to defend themselves. */
   defenseDuration?: number;
   /** Seconds the jury gets to return a verdict. */
@@ -513,6 +524,14 @@ export interface DeathInfoMessage extends BaseMessage {
   type: 'DEATH_INFO';
   payload: {
     reason: string;
+    /**
+     * Who did it, already resolved to names.
+     *
+     * Sent to the victim alone and shown only on their own screen — never
+     * posted into dead chat, because a living Medium reads that channel and
+     * would otherwise be handed the Mafia for free every single night.
+     */
+    killedBy?: string | null;
   };
 }
 

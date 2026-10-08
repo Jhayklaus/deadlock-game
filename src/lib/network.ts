@@ -38,6 +38,8 @@ class NetworkManager {
    * own word or number again.
    */
   private perPlayerPayloads: Record<PlayerId, Record<string, unknown>> = {};
+  /** How each dead player died, so a reconnect can be told again. */
+  private deathInfo: Record<PlayerId, { reason: string; killedBy: string | null }> = {};
 
   // Host state for night actions
   private nightActions: NightActions = emptyNightActions();
@@ -113,6 +115,7 @@ class NetworkManager {
           hostPrivateState: this.hostPrivateState,
           modeRoles: this.modeRoles,
           perPlayerPayloads: this.perPlayerPayloads,
+          deathInfo: this.deathInfo,
           nightActions: this.nightActions,
           dayVotes: this.dayVotes,
           trialVerdicts: this.trialVerdicts,
@@ -141,6 +144,7 @@ class NetworkManager {
       this.hostPrivateState = snapshot.hostPrivateState ?? {};
       this.modeRoles = snapshot.modeRoles ?? {};
       this.perPlayerPayloads = snapshot.perPlayerPayloads ?? {};
+      this.deathInfo = snapshot.deathInfo ?? {};
       this.nightActions = snapshot.nightActions ?? emptyNightActions();
       this.dayVotes = snapshot.dayVotes ?? {};
       this.trialVerdicts = snapshot.trialVerdicts ?? {};
@@ -641,7 +645,11 @@ class NetworkManager {
       const eliminationResult = {
           eliminatedId,
           resultText,
-          revealedRole: eliminatedId ? this.modeRoleLabel(eliminatedId) : null,
+          // Withheld entirely rather than hidden in the UI: anything the host
+          // sends, a player can read off the wire.
+          revealedRole: eliminatedId && store.settings.revealRoleOnElimination
+              ? this.modeRoleLabel(eliminatedId)
+              : null,
       };
       const duration = 6000;
       const timerEnd = Date.now() + duration;
@@ -1011,6 +1019,7 @@ class NetworkManager {
     this.dayVotes = {};
     this.lastWills = {};
     this.hostPrivateState = {};
+    this.deathInfo = {};
     store.setVoteCounts({});
     store.setLastNightResult('');
     store.setAllRoles({});
@@ -1409,18 +1418,32 @@ class NetworkManager {
     }
   }
 
-  private sendDeathInfo(targetId: string, reason: string) {
+  /**
+   * Tells one player how they died, and who did it.
+   *
+   * Sent to that player alone. It deliberately does NOT go through
+   * `sendPrivateSystemMessage`, which would put it in the chat log that a
+   * living Medium can read — handing them the Mafia's roster every night.
+   * Whether to tell anyone is the dead player's own decision to make.
+   */
+  private sendDeathInfo(targetId: string, reason: string, killerIds: ReadonlyArray<string> = []) {
     const store = useGameStore.getState();
-    const msg: NetworkMessage = {
-        type: 'DEATH_INFO',
-        senderId: store.myId,
-        payload: { reason }
-    };
-    
+    const names = killerIds
+        .map(id => store.players[id]?.name)
+        .filter((n): n is string => !!n);
+    const killedBy = names.length ? names.join(' and ') : null;
+
+    // Remember it, so a reconnect can be told again.
+    this.deathInfo[targetId] = { reason, killedBy };
+
     if (targetId === store.myId) {
-        store.setMyDeathReason(reason);
+        store.setMyDeathReason(reason, killedBy);
     } else {
-        this.sendMessage(targetId, msg);
+        this.sendMessage(targetId, {
+            type: 'DEATH_INFO',
+            senderId: store.myId,
+            payload: { reason, killedBy }
+        });
     }
   }
 
@@ -1457,8 +1480,8 @@ class NetworkManager {
         this.sendPrivateSystemMessage(playerId, content);
     });
 
-    outcome.deaths.forEach(({ playerId, reason }) => {
-        this.sendDeathInfo(playerId, reason);
+    outcome.deaths.forEach(({ playerId, reason, killerIds }) => {
+        this.sendDeathInfo(playerId, reason, killerIds);
         store.updatePlayer(playerId, {
             isAlive: false,
             lastWill: this.lastWills[playerId],
@@ -2328,12 +2351,21 @@ class NetworkManager {
       const lastWill = this.lastWills[eliminatedId];
       const resultText = `${verb} ${name}.`;
 
-      store.updatePlayer(eliminatedId, { isAlive: false, lastWill, role });
+      // Three separate ways the role used to escape: written onto the player
+      // object (which is broadcast), announced in chat, and put on the reveal
+      // card. All of them have to respect the setting, or hiding it on the
+      // card alone just means the determined player reads it off the wire.
+      const reveal = store.settings.revealRoleOnElimination;
+      store.updatePlayer(eliminatedId, {
+          isAlive: false,
+          lastWill,
+          ...(reveal ? { role } : {}),
+      });
       this.broadcastPlayerUpdate();
-      this.sendDeathInfo(eliminatedId, 'You were eliminated by the town.');
+      this.sendDeathInfo(eliminatedId, 'You were eliminated by the town.');  // no single killer
       this.broadcastSystemMessage(resultText);
       if (lastWill) this.broadcastSystemMessage(`Last Will of ${name}: "${lastWill}"`);
-      if (role) this.broadcastSystemMessage(`${name} was ${role.replace('_', ' ')}.`);
+      if (role && reveal) this.broadcastSystemMessage(`${name} was ${role.replace('_', ' ')}.`);
 
       // A lynched Jester wins outright, immediately.
       if (role === 'jester') {
@@ -2369,7 +2401,9 @@ class NetworkManager {
       const eliminationResult = {
           eliminatedId,
           resultText,
-          revealedRole: role ? role.replace(/_/g, ' ') : null,
+          revealedRole: role && store.settings.revealRoleOnElimination
+              ? role.replace(/_/g, ' ')
+              : null,
       };
       const duration = 8000;
       const timerEnd = Date.now() + duration;
@@ -2609,6 +2643,8 @@ class NetworkManager {
         store.setPhase('role_assignment');
         store.setLastNightResult('');
         store.setVoteCounts({});
+        // Otherwise last game's "you were killed by..." card is still on screen.
+        store.setMyDeathReason(null, null);
         store.clearMessages();
         break;
 
@@ -2830,7 +2866,7 @@ class NetworkManager {
 
         case 'DEATH_INFO':
             if (message.payload.reason) {
-                store.setMyDeathReason(message.payload.reason);
+                store.setMyDeathReason(message.payload.reason, message.payload.killedBy ?? null);
             }
             break;
 
@@ -3163,6 +3199,18 @@ class NetworkManager {
                   tasksTotal: Number(this.hostPrivateState.tasksTotal ?? 0),
                   sabotage: this.dlRead<ActiveSabotage | null>('sabotageJson', null),
               }
+          });
+      }
+
+      // A one-shot private message is lost if they were away when it was sent,
+      // and being told how you died is exactly the sort of thing you come back
+      // wanting to know.
+      const death = this.deathInfo[playerId];
+      if (death) {
+          this.sendMessage(playerId, {
+              type: 'DEATH_INFO',
+              senderId: store.myId,
+              payload: { reason: death.reason, killedBy: death.killedBy },
           });
       }
 

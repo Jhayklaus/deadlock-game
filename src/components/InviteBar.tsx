@@ -60,7 +60,8 @@ export default function InviteBar({
         </code>
         <button
           onClick={copyCode}
-          className="rounded-lg p-2 text-ink-muted transition-colors hover:bg-surface hover:text-ink"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-ink-muted
+            transition-colors hover:bg-surface hover:text-ink"
           title="Copy room code"
           aria-label="Copy room code"
         >
@@ -77,7 +78,7 @@ export default function InviteBar({
           onClick={copyInviteLink}
           className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-accent/30
             bg-accent/10 px-3 py-2 text-xs font-semibold text-accent transition-colors
-            hover:bg-accent/20 md:flex-none"
+            hover:bg-accent/20 md:flex-none min-h-[44px]"
           title={inviteUrl}
         >
           {copySuccess === 'Link copied!' ? <Check size={14} /> : <Link2 size={14} />}
@@ -87,8 +88,8 @@ export default function InviteBar({
         {canShare && (
           <button
             onClick={share}
-            className="rounded-xl border border-edge/60 p-2 text-ink-muted transition-colors
-              hover:border-accent/40 hover:text-ink"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-edge/60
+              text-ink-muted transition-colors hover:border-accent/40 hover:text-ink"
             title="Share invite link"
             aria-label="Share invite link"
           >

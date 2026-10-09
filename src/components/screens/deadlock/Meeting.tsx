@@ -34,7 +34,7 @@ export default function Meeting() {
 
   if (!isAlive) {
     return (
-      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 pb-20 md:pb-0">
+      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 pb-28 lg:pb-0">
         <Card variant="glass" className="text-center py-12 flex flex-col items-center justify-center">
           <Skull size={52} className="text-danger mb-4" />
           <h2 className="font-display text-3xl text-danger mb-3">Eliminated</h2>
@@ -56,7 +56,7 @@ export default function Meeting() {
   }
 
   return (
-    <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-5 pb-20 md:pb-0">
+    <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-5 pb-28 lg:pb-0">
       <div className="lg:col-span-7 space-y-5">
         <Card variant="glass">
           <div className="flex items-center justify-center gap-2.5 mb-6">

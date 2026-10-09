@@ -204,7 +204,7 @@ export default function ModeGuide({ modeId, isOpen, onClose }: ModeGuideProps) {
             {index > 0 && (
               <button
                 onClick={back}
-                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium
+                className="inline-flex items-center gap-1.5 h-11 px-3 rounded-xl text-sm font-medium
                   text-ink-muted hover:text-ink hover:bg-surface transition-colors"
               >
                 <ArrowLeft size={15} /> Back
@@ -256,7 +256,7 @@ export function HowToPlayButton({ modeId, autoOpenInLobby }: { modeId: GameModeI
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-semibold
+        className="inline-flex items-center gap-1.5 h-11 px-3 rounded-xl text-xs font-semibold
           bg-surface/60 border border-edge/60 text-ink-muted
           hover:text-ink hover:border-accent/50 transition-colors"
         title="How to play"

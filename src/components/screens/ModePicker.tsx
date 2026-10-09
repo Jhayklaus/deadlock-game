@@ -177,8 +177,8 @@ export default function ModePicker() {
 
               <button
                 onClick={() => setGuideFor(mode.id)}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold
-                  text-ink-muted hover:text-ink transition-colors"
+                className="-m-2 inline-flex min-h-[44px] items-center gap-1.5 p-2 text-[11px]
+                  font-semibold text-ink-muted transition-colors hover:text-ink"
               >
                 <HelpCircle size={13} />
                 How it works

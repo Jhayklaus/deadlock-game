@@ -19,7 +19,7 @@ export default function LobbyRoom() {
   } = useLobbyState();
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-20 md:pb-0">
+    <div className="w-full max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-28 lg:pb-0">
       {/* Header */}
       <Card variant="glass" className="flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden border-amber-900/30">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-800 via-amber-400 to-amber-800 opacity-60" />

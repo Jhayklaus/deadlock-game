@@ -182,7 +182,7 @@ export default function Station() {
 
           <p className="text-[11px] text-ink-muted text-center mt-2 flex items-center justify-center gap-1.5">
             <Footprints size={12} />
-            Click a connected room to walk there
+            Choose a connected room to walk there
           </p>
         </Card>
       </div>

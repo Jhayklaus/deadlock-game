@@ -51,7 +51,7 @@ export default function MobileChatDrawer({ channel = 'global' }: MobileChatDrawe
             channel === 'dead' ? "bg-surface text-ink shadow-black/40" :
               "bg-indigo-600 text-white shadow-indigo-900/50"
         )}
-        aria-label="Open Chat"
+        aria-label="Open chat"
       >
         <div className='flex gap-2'>
           <p>Discuss</p>
@@ -71,21 +71,30 @@ export default function MobileChatDrawer({ channel = 'global' }: MobileChatDrawe
 
       {/* Drawer Content */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={channel === 'mafia' ? 'Mafia chat' : channel === 'dead' ? 'Graveyard whispers' : 'Global chat'}
+        aria-hidden={!isOpen}
         className={clsx(
-          "fixed bottom-0 left-0 right-0 z-50 h-[85vh] bg-elevated border-t border-edge/50 rounded-t-2xl shadow-2xl transition-transform duration-300 ease-out lg:hidden flex flex-col",
-          isOpen ? "translate-y-0" : "translate-y-full"
+          "fixed bottom-0 left-0 right-0 z-50 h-[85vh] bg-elevated border-t border-edge/50 rounded-t-2xl shadow-2xl lg:hidden flex flex-col",
+          "transition-[transform,visibility] duration-300 ease-out",
+          isOpen ? "translate-y-0 visible" : "translate-y-full invisible delay-300"
         )}
       >
         {/* Handle Bar */}
         <div
+          role="button"
+          tabIndex={isOpen ? 0 : -1}
+          aria-label="Close chat"
           className="w-full p-2 flex justify-center items-center cursor-pointer hover:bg-surface/50 rounded-t-2xl transition-colors"
           onClick={() => setIsOpen(false)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setIsOpen(false); }}
         >
           <div className="w-12 h-1.5 bg-surface rounded-full mb-1" />
         </div>
 
         {/* Header */}
-        <div className="px-4 pb-4 flex justify-between items-center border-b border-edge/50/50">
+        <div className="px-4 pb-4 flex justify-between items-center border-b border-edge/50">
           <h3 className={clsx("font-bold text-lg flex items-center gap-2",
             channel === 'mafia' ? "text-red-500" :
               channel === 'dead' ? "text-ink-muted" :
@@ -97,7 +106,9 @@ export default function MobileChatDrawer({ channel = 'global' }: MobileChatDrawe
           </h3>
           <button
             onClick={() => setIsOpen(false)}
-            className="p-2 hover:bg-surface rounded-full transition-colors text-ink-muted hover:text-white"
+            aria-label="Close chat"
+            className="grid h-11 w-11 place-items-center rounded-full text-ink-muted
+              transition-colors hover:bg-surface hover:text-white"
           >
             <ChevronDown size={24} />
           </button>

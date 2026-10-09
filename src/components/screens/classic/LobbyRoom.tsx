@@ -22,7 +22,7 @@ export default function LobbyRoom() {
   const roster = Object.values(players);
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-5 animate-in fade-in duration-500 pb-20 md:pb-0">
+    <div className="w-full max-w-7xl mx-auto space-y-5 animate-in fade-in duration-500 pb-28 lg:pb-0">
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <Card variant="glass" className="flex flex-col md:flex-row items-center justify-between gap-5">
         <div className="flex items-center gap-4 w-full md:w-auto">

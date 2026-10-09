@@ -26,7 +26,7 @@ export default function SoundToggle() {
       aria-label={muted ? 'Unmute sound' : 'Mute sound'}
       aria-pressed={muted}
       className={clsx(
-        'inline-flex items-center justify-center w-9 h-9 rounded-xl border transition-colors',
+        'inline-flex h-11 w-11 items-center justify-center rounded-xl border transition-colors',
         muted
           ? 'bg-surface/60 border-edge/60 text-ink-muted/70 hover:text-ink'
           : 'bg-surface/60 border-edge/60 text-ink-muted hover:text-ink hover:border-accent/50'

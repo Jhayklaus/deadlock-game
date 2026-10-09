@@ -38,6 +38,18 @@ class NetworkManager {
    * own word or number again.
    */
   private perPlayerPayloads: Record<PlayerId, Record<string, unknown>> = {};
+  /**
+   * What each player has privately been told, newest last.
+   *
+   * Bots have no client, so every private result the night produced was
+   * emitted to a socket that does not exist and thrown away. A Detective bot
+   * investigated someone, was told the answer, and could not remember it a
+   * second later — which is most of why the bots argued from nothing. Kept
+   * here so each bot can be handed its own notes.
+   */
+  private privateLog: Record<PlayerId, string[]> = {};
+  private static readonly PRIVATE_LOG_KEEP = 12;
+
   /** How each dead player died, so a reconnect can be told again. */
   private deathInfo: Record<PlayerId, { reason: string; killedBy: string | null }> = {};
 
@@ -116,6 +128,7 @@ class NetworkManager {
           modeRoles: this.modeRoles,
           perPlayerPayloads: this.perPlayerPayloads,
           deathInfo: this.deathInfo,
+          privateLog: this.privateLog,
           nightActions: this.nightActions,
           dayVotes: this.dayVotes,
           trialVerdicts: this.trialVerdicts,
@@ -145,6 +158,7 @@ class NetworkManager {
       this.modeRoles = snapshot.modeRoles ?? {};
       this.perPlayerPayloads = snapshot.perPlayerPayloads ?? {};
       this.deathInfo = snapshot.deathInfo ?? {};
+      this.privateLog = snapshot.privateLog ?? {};
       this.nightActions = snapshot.nightActions ?? emptyNightActions();
       this.dayVotes = snapshot.dayVotes ?? {};
       this.trialVerdicts = snapshot.trialVerdicts ?? {};
@@ -948,6 +962,7 @@ class NetworkManager {
       this.modeRoles = {};
       this.perPlayerPayloads = {};
       this.deathInfo = {};
+      this.privateLog = {};
       this.nightActions = emptyNightActions();
       this.dayVotes = {};
       this.trialVerdicts = {};
@@ -1063,6 +1078,7 @@ class NetworkManager {
     this.lastWills = {};
     this.hostPrivateState = {};
     this.deathInfo = {};
+    this.privateLog = {};
     store.setVoteCounts({});
     store.setLastNightResult('');
     store.setAllRoles({});
@@ -1338,6 +1354,7 @@ class NetworkManager {
               bot.id, store.players, chatHistory, store.phase, store.allRoles || {},
               option.channel, this.activeModeId, this.modeRoles,
               this.perPlayerPayloads[bot.id], store.round,
+              this.privateLog[bot.id] ?? [],
           );
           
           // Stop typing
@@ -1422,7 +1439,10 @@ class NetworkManager {
               // Re-check if bot is still alive (unlikely to change during night start, but good practice)
               if (!store.players[bot.id]?.isAlive) return;
 
-              const action = await getBotNightAction(bot.id, role, store.players, allRoles);
+              const action = await getBotNightAction(
+                  bot.id, role, store.players, allRoles, '',
+                  this.privateLog[bot.id] ?? [],
+              );
               if (action) {
                   this.handleNightAction(bot.id, action.action, action.targetId, action.secondTargetId);
               }
@@ -1447,6 +1467,10 @@ class NetworkManager {
 
   private sendPrivateSystemMessage(targetId: string, content: string) {
     const store = useGameStore.getState();
+
+    // Remember it regardless of who it is for: a bot cannot receive the
+    // message, and a human may be reconnecting when it goes out.
+    this.rememberPrivate(targetId, content);
     const msg: NetworkMessage = {
         type: 'CHAT_MESSAGE',
         senderId: store.myId,
@@ -1468,6 +1492,13 @@ class NetworkManager {
     }
   }
 
+  /** Adds a note to a player's private memory, keeping the most recent few. */
+  private rememberPrivate(playerId: PlayerId, content: string) {
+      const log = this.privateLog[playerId] ?? [];
+      log.push(content);
+      this.privateLog[playerId] = log.slice(-NetworkManager.PRIVATE_LOG_KEEP);
+  }
+
   /**
    * Tells one player how they died, and who did it.
    *
@@ -1485,6 +1516,7 @@ class NetworkManager {
 
     // Remember it, so a reconnect can be told again.
     this.deathInfo[targetId] = { reason, killedBy };
+    this.rememberPrivate(targetId, killedBy ? `${reason} It was ${killedBy}.` : reason);
 
     if (targetId === store.myId) {
         store.setMyDeathReason(reason, killedBy);
@@ -1637,6 +1669,7 @@ class NetworkManager {
               const targetId = await getBotDayVote(
                   bot.id, store.players, chatHistory, modeRole, store.allRoles || undefined,
                   this.activeModeId, this.perPlayerPayloads[bot.id],
+                  this.privateLog[bot.id] ?? [],
               );
               this.processVote(bot.id, targetId);
           }, delay);

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { parseMentions, mentionQueryAt, matchRoster, applyMention } from '../lib/mentions';
 import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
 import { clsx } from 'clsx';
@@ -73,6 +74,8 @@ export default function ChatBox({
   title,
 }: ChatBoxProps) {
   const [input, setInput] = useState('');
+  const [suggestIndex, setSuggestIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const myId = useGameStore(state => state.myId);
   const typingPlayers = useGameStore(state => state.typingPlayers);
   const players = useGameStore(state => state.players);
@@ -90,6 +93,30 @@ export default function ChatBox({
   }));
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // What the player is part-way through tagging, if anything.
+  const [caret, setCaret] = useState(0);
+  // Escape closes the list without clearing what was typed; it reopens on the
+  // next keystroke.
+  const [dismissed, setDismissed] = useState(false);
+  const pending = readOnly || dismissed ? null : mentionQueryAt(input, caret);
+  const suggestions = pending ? matchRoster(pending.query, players, { exclude: myId }) : [];
+  const tagsMe = (content: string) =>
+    parseMentions(content, players).some(p => p.kind === 'mention' && p.playerId === myId);
+
+  const choose = (name: string) => {
+    if (!pending) return;
+    const next = applyMention(input, pending, name);
+    setInput(next.value);
+    setCaret(next.caret);
+    setSuggestIndex(0);
+    // Put the caret back where the text now ends, or the next keystroke lands
+    // in the wrong place.
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(next.caret, next.caret);
+    });
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -204,10 +231,26 @@ export default function ChatBox({
               <div
                 className={clsx(
                   'px-3.5 py-2 rounded-2xl text-sm leading-relaxed break-words',
-                  isMe ? `${cfg.mine} rounded-br-sm` : `${cfg.theirs} rounded-bl-sm`
+                  isMe ? `${cfg.mine} rounded-br-sm` : `${cfg.theirs} rounded-bl-sm`,
+                  // Being named in a fast-moving discussion is easy to miss.
+                  tagsMe(msg.content) && !isMe && 'ring-1 ring-accent/60'
                 )}
               >
-                {msg.content}
+                {parseMentions(msg.content, players).map((part, i) =>
+                  part.kind === 'mention' ? (
+                    <span
+                      key={i}
+                      className={clsx(
+                        'font-semibold',
+                        part.playerId === myId ? 'text-accent underline decoration-dotted' : 'opacity-90 underline decoration-dotted'
+                      )}
+                    >
+                      {part.text}
+                    </span>
+                  ) : (
+                    <span key={i}>{part.text}</span>
+                  )
+                )}
               </div>
             </div>
           );
@@ -235,13 +278,58 @@ export default function ChatBox({
           </p>
         </div>
       ) : (
-      <form onSubmit={handleSubmit} className="p-3 border-t border-edge/50 flex gap-2 shrink-0 bg-elevated/60">
+      <form onSubmit={handleSubmit} className="relative p-3 border-t border-edge/50 flex gap-2 shrink-0 bg-elevated/60">
+        {suggestions.length > 0 && (
+          <ul
+            role="listbox"
+            aria-label="Mention a player"
+            className="absolute bottom-full left-3 right-3 mb-2 overflow-hidden rounded-xl border
+              border-edge/60 bg-elevated shadow-xl"
+          >
+            {suggestions.map((p, i) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={i === suggestIndex}
+                  // The input must keep focus, or the caret position is lost.
+                  onMouseDown={e => { e.preventDefault(); choose(p.name); }}
+                  className={clsx(
+                    'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors',
+                    i === suggestIndex ? 'bg-surface text-ink' : 'text-ink-muted hover:bg-surface/60'
+                  )}
+                >
+                  <span className="font-semibold">@{p.name}</span>
+                  {!p.isAlive && <span className="text-[10px] uppercase tracking-wider">dead</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <input
+          ref={inputRef}
           type="text"
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={e => {
+            setInput(e.target.value);
+            setCaret(e.target.selectionStart ?? e.target.value.length);
+            setSuggestIndex(0);
+            setDismissed(false);
+          }}
+          onKeyUp={e => setCaret((e.target as HTMLInputElement).selectionStart ?? 0)}
+          onClick={e => setCaret((e.target as HTMLInputElement).selectionStart ?? 0)}
+          onKeyDown={e => {
+            if (suggestions.length === 0) return;
+            // While the list is open these keys belong to it, not to the form.
+            if (e.key === 'ArrowDown') { e.preventDefault(); setSuggestIndex(i => (i + 1) % suggestions.length); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setSuggestIndex(i => (i - 1 + suggestions.length) % suggestions.length); }
+            else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); choose(suggestions[suggestIndex].name); }
+            else if (e.key === 'Escape') { e.preventDefault(); setDismissed(true); }
+          }}
           placeholder={cfg.placeholder}
           aria-label={`Message ${cfg.title}`}
+          autoComplete="off"
           className="flex-1 rounded-xl px-3.5 py-2.5 text-sm bg-base/60 border border-edge/60 text-ink
             placeholder:text-ink-muted/60 transition-all
             focus:outline-none focus:ring-2 focus:ring-accent/35 focus:border-accent/60"

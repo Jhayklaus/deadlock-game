@@ -1,7 +1,7 @@
 import { Player, Role, PlayerId, NightActionType } from './types';
 import { generateAIResponse } from './ai';
 import { ROLE_DEFINITIONS } from './roleData';
-import { briefingBlock, secretBrief } from './botContext';
+import { briefingBlock, secretBrief, rolePlayBlock } from './botContext';
 import type { GameModeId } from './types';
 
 const ROLE_GUIDE = ROLE_DEFINITIONS.map(r => 
@@ -51,7 +51,9 @@ export async function getBotNightAction(
   role: Role, 
   players: Record<PlayerId, Player>, 
   allRoles: Record<PlayerId, Role>,
-  gameHistory: string = ""
+  gameHistory: string = "",
+  /** What this bot has privately been told so far. */
+  notes: ReadonlyArray<string> = []
 ): Promise<{ action: NightActionType; targetId: PlayerId; secondTargetId?: PlayerId } | null> {
   
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
@@ -133,25 +135,30 @@ export async function getBotNightAction(
 
   const targetsList = alivePlayers.map(p => p.name).join(', ');
   
+  const memory = notes.length ? notes.map(n => `- ${n}`).join('\n    ') : '';
+
   const prompt = `
-    Role: ${role}
-    Name: ${botName}
-    Personality: ${personality}
-    Goal: ${goal}
-    Alive Players (Valid Targets): ${targetsList}
-    Dead Players (Invalid Targets): ${deadPlayers || "None"}
-    Recent Game History:
+    ${rolePlayBlock(role) || `Role: ${role}\n    Goal: ${goal}`}
+
+    You are ${botName}. Personality: ${personality}.
+    Alive players (valid targets): ${targetsList}
+    Dead players (never target these): ${deadPlayers || "None"}
+
+    ${memory ? `WHAT YOU ALREADY KNOW (from your own previous nights):\n    ${memory}` : ''}
+
+    Recent game history:
     ${gameHistory || "No history yet."}
-    
-    Role Guide:
+
+    Role guide:
     ${ROLE_GUIDE}
 
-    Task: Choose one player name from the "Alive Players" list to target.
-    Rules:
-    1. You MUST choose a name from "Alive Players".
-    2. Do NOT choose a name from "Dead Players".
-    3. If you are Vigilante, only kill if you are reasonably sure the target is evil.
-    Output: JUST the name. No explanations.
+    Choose one player from the alive list to target tonight.
+    - Use what you already know. There is no value in checking the same person
+      twice, or in protecting someone you have already cleared when a likelier
+      target exists.
+    - If you are the Vigilante, only shoot when you have a real reason; a wrong
+      shot kills you too.
+    Output JUST the name, with no explanation.
   `;
 
   const responseName = await generateAIResponse(prompt);
@@ -183,7 +190,9 @@ export async function getBotDayVote(
   modeRole: string = "",
   allRoles?: Record<PlayerId, Role>,
   gameMode: string = 'classic_mafia',
-  myPayload?: Record<string, unknown>
+  myPayload?: Record<string, unknown>,
+  /** What this bot has privately been told so far. */
+  notes: ReadonlyArray<string> = []
 ): Promise<PlayerId | null> {
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
   if (alivePlayers.length === 0) return null;
@@ -211,6 +220,7 @@ export async function getBotDayVote(
   }
 
   const secrets = secretBrief(gameMode as GameModeId, modeRole, myPayload);
+  const memory = notes.length ? notes.map(n => `- ${n}`).join('\n    ') : '';
 
   const prompt = `
     ${briefingBlock(gameMode as GameModeId)}
@@ -219,23 +229,24 @@ export async function getBotDayVote(
     ${secrets ? `WHAT ONLY YOU KNOW: ${secrets}` : ''}
     ${roleContext ? `YOUR SITUATION: ${roleContext}` : `ROLES IN THIS GAME:\n${ROLE_GUIDE}`}
 
+    ${memory ? `WHAT YOU HAVE LEARNED (private):\n    ${memory}` : ''}
+
     Candidates: ${targetsList}
 
     CHAT SO FAR:
     ${chatHistory || '(nobody has said anything)'}
 
-    Decide who to vote out, judging only by what people actually said above and
-    by what you know. Reply with one exact name from the candidate list, or SKIP
-    if nothing points anywhere. Output the name or SKIP and nothing else.
+    Decide. Weigh what people actually said, how they voted, and anything you
+    were told privately — not a hunch. Commit to a name unless the table has
+    genuinely given you nothing to go on; a vote that is merely uncertain is
+    still better than no vote, because a tie protects whoever is hiding.
+    Reply with one exact name from the candidate list, or SKIP. Nothing else.
   `;
 
   const response = await generateAIResponse(prompt);
 
-  if (response) {
-    if (response.toUpperCase().includes('SKIP')) return null;
-    const target = alivePlayers.find(p => response.toLowerCase().includes(p.name.toLowerCase()));
-    if (target) return target.id;
-  }
+  const parsed = parseVoteResponse(response, alivePlayers);
+  if (parsed !== undefined) return parsed;
 
   // No AI, or it produced nothing usable. Decide locally — a bot that always
   // abstains makes the whole game a chain of skipped votes.
@@ -243,18 +254,67 @@ export async function getBotDayVote(
 }
 
 /**
+ * Reads a vote out of whatever the model replied with.
+ *
+ * Returns the player id, `null` for a deliberate skip, or `undefined` when the
+ * reply made no sense and the caller should decide locally.
+ *
+ * The old version did `response.includes('SKIP')` against the whole string, so
+ * any sentence containing the word — "not going to skip this one", or a player
+ * called Skipper — silently threw the vote away. It also matched names by
+ * substring in roster order, so a reply naming two people voted for whichever
+ * happened to be earlier in the list rather than the one actually chosen.
+ */
+export function parseVoteResponse(
+  response: string | null,
+  alivePlayers: Player[]
+): PlayerId | null | undefined {
+  if (!response) return undefined;
+
+  // Models like to wrap the answer in quotes, backticks or a trailing stop.
+  const clean = response.trim().replace(/^["'`*\s]+|["'`*.\s]+$/g, '');
+  if (!clean) return undefined;
+
+  if (/^skip$/i.test(clean)) return null;
+
+  // An exact name is the expected shape, so try that before anything fuzzy.
+  const exact = alivePlayers.find(p => p.name.toLowerCase() === clean.toLowerCase());
+  if (exact) return exact.id;
+
+  // Otherwise take the FIRST name that appears in the text, by position —
+  // which is the one the sentence is about — rather than the first in roster
+  // order. A leading @ is fine; that is how we ask them to tag people.
+  let best: { id: PlayerId; at: number } | null = null;
+  for (const p of alivePlayers) {
+    const at = clean.toLowerCase().indexOf(p.name.toLowerCase());
+    if (at === -1) continue;
+    if (!best || at < best.at) best = { id: p.id, at };
+  }
+  if (best) return best.id;
+
+  // A bare "skip" somewhere in a longer sentence, with no name anywhere, is a
+  // skip after all.
+  if (/\bskip\b/i.test(clean)) return null;
+
+  return undefined;
+}
+
+/**
  * Built-in voting behaviour, used whenever the AI is unavailable.
  *
- * Evil bots avoid their own side; everyone else picks someone at random. A
- * small chance of abstaining keeps votes from being unnaturally decisive.
+ * Evil bots avoid their own side; everyone else picks someone at random.
+ *
+ * There is deliberately no random abstention. Every silent bot is a free vote
+ * for whoever is hiding — enough of them and no majority ever forms, so the
+ * table skips round after round. A bot either names someone or skips on
+ * purpose, and the reasons to skip are decided above, not by a dice roll.
  */
-function fallbackDayVote(
+export function fallbackDayVote(
   botId: PlayerId,
   alivePlayers: Player[],
   allRoles?: Record<PlayerId, Role>
 ): PlayerId | null {
   if (alivePlayers.length === 0) return null;
-  if (Math.random() < 0.15) return null; // occasional abstention
 
   const myRole = allRoles?.[botId];
   const isEvil = myRole === 'mafia' || myRole === 'framer' || myRole === 'serial_killer';
@@ -284,7 +344,9 @@ export async function getBotChat(
   /** The bot's own private payload — the same one a human in its seat holds. */
   myPayload?: Record<string, unknown>,
   /** Round number, so bots can refer to what happened earlier. */
-  round = 1
+  round = 1,
+  /** What this bot has privately been told so far. */
+  notes: ReadonlyArray<string> = []
 ): Promise<string | null> {
   const botName = players[botId]?.name || 'Bot';
   const personality = botPersonalities.get(botName) || 'neutral';
@@ -359,16 +421,18 @@ export async function getBotChat(
         terminologyNote = "rooms, tasks, sabotage, body, meeting";
       }
     } else {
-      // Classic mafia
-      if (['civilian', 'doctor', 'detective', 'bodyguard', 'vigilante', 'medium', 'mayor'].includes(classicRole)) {
-        roleInstruction = "You are on the Town team. Be honest about being a Civilian. You want to eliminate the Mafia.";
-      } else if (classicRole === 'mafia') {
-        roleInstruction = "You are MAFIA. Deceive everyone. Pretend to be a Civilian. Do NOT reveal you are Mafia.";
-      }
+      // Classic mafia. Every role gets its own guidance — telling a Detective
+      // to "be honest about being a Civilian" threw away the only thing it knew,
+      // and nine of the eighteen roles had no guidance at all.
+      roleInstruction = rolePlayBlock(classicRole) || roleInstruction;
     }
   }
 
   const secrets = secretBrief(gameMode as GameModeId, effectiveRole || classicRole, myPayload);
+  const memory = notes.length
+    ? notes.map(n => `- ${n}`).join('\n    ')
+    : '';
+  const roster = Object.values(players).filter(p => p.isAlive).map(p => `@${p.name}`).join(', ');
 
   const prompt = `
     ${briefingBlock(gameMode as GameModeId)}
@@ -380,6 +444,8 @@ export async function getBotChat(
     Alive: ${alivePlayers}
     Dead: ${deadPlayers || 'nobody yet'}
 
+    ${memory ? `WHAT YOU HAVE LEARNED (private, nobody else knows this):\n    ${memory}` : ''}
+
     RECENT CHAT:
     ${chatHistory || '(nothing said yet — you are opening the discussion)'}
 
@@ -387,11 +453,18 @@ export async function getBotChat(
 
     YOUR SITUATION: ${roleInstruction}
 
-    Write one short chat message, 15 words or fewer.
-    - Respond to something specific that was actually said, or to the state above.
+    Write one short chat message, 20 words or fewer.
+    - Tag anyone you are talking about or to with @Name, exactly as spelled:
+      ${roster}.
+    - Say WHY. Point at a clue, a vote, a contradiction, or something you were
+      told privately. "I think @X is suspicious" with no reason is worthless.
+    - Do not accuse anyone in round 1 unless you have an actual reason. Early on,
+      ask a question or share your own read instead of picking a target.
+    - If you have private information, decide whether this is the moment to use
+      it. You do not have to say everything you know.
     - Never describe anything the game does not have. Re-read WHAT THIS GAME IS NOT.
     - Never mention being an AI, a bot, a model, or a prompt.
-    - Do not repeat a line already in the chat log.
+    - Do not repeat a line already in the chat log, or restate what someone just said.
     - Do not address dead players as if they were alive, unless you are dead too.
     Output the message text only, with no quotes and no name prefix.
   `;

@@ -3,6 +3,7 @@ import { clsx } from 'clsx';
 import { useState } from 'react';
 import { networkManager } from '../lib/network';
 import ChatBox from './ChatBox';
+import DeadChat from './DeadChat';
 import LastWillEditor from './LastWillEditor';
 import Graveyard from './Graveyard';
 import { Skull, Sun, MessageSquare, Gavel, SkipForward, CheckCircle, User } from 'lucide-react';
@@ -106,7 +107,7 @@ export default function DayPhase() {
           </div>
         </Card>
         <div className="flex justify-center h-full min-h-[500px]">
-          <ChatBox channel="dead" />
+          <DeadChat />
         </div>
       </div>
     );

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { MessageSquare, ChevronDown } from 'lucide-react';
 import { clsx } from 'clsx';
 import ChatBox from './ChatBox';
+import DeadChat from './DeadChat';
 
 interface MobileChatDrawerProps {
   channel?: 'global' | 'mafia' | 'dead';
@@ -116,7 +117,11 @@ export default function MobileChatDrawer({ channel = 'global' }: MobileChatDrawe
 
         {/* Chat Content */}
         <div className="flex-1 overflow-hidden p-4 pt-0">
-          <ChatBox channel={channel} className="h-full border-0 bg-transparent shadow-none" />
+          {channel === 'dead' ? (
+            <DeadChat className="h-full max-w-none" />
+          ) : (
+            <ChatBox channel={channel} className="h-full border-0 bg-transparent shadow-none" />
+          )}
         </div>
       </div>
     </>

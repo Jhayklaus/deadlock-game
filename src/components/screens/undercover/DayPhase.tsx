@@ -2,6 +2,7 @@ import { useGameStore } from '../../../lib/store';
 import { clsx } from 'clsx';
 import { useVoting } from '../../../hooks/useVoting';
 import ChatBox from '../../ChatBox';
+import DeadChat from '../../DeadChat';
 import Graveyard from '../../Graveyard';
 import MobileChatDrawer from '../../MobileChatDrawer';
 import { Card } from '../../ui/Card';
@@ -74,7 +75,7 @@ export default function DayPhase() {
           <div className="w-full"><Graveyard /></div>
         </Card>
         <div className="flex justify-center h-full min-h-[500px]">
-          <ChatBox channel="dead" />
+          <DeadChat />
         </div>
       </div>
     );

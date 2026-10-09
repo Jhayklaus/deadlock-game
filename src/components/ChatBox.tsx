@@ -2,11 +2,24 @@ import { useState, useRef, useEffect } from 'react';
 import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
 import { clsx } from 'clsx';
-import { Send, Lock, Ghost, MessageSquare, Mic } from 'lucide-react';
+import { Send, Lock, Ghost, MessageSquare, Mic, Eye } from 'lucide-react';
 
 interface ChatBoxProps {
   channel?: 'global' | 'mafia' | 'dead';
   className?: string;
+  /**
+   * Show the conversation without letting this player join it.
+   *
+   * The dead watch the living talk — being cut off from the game entirely for
+   * the rest of a long round is the dull part of dying — but they must not be
+   * able to answer, so the composer is replaced with a notice rather than
+   * merely disabled.
+   */
+  readOnly?: boolean;
+  /** Why the composer is missing. Shown in its place. */
+  readOnlyNote?: string;
+  /** Overrides the channel's own heading, for a tabbed view. */
+  title?: string;
 }
 
 /**
@@ -52,7 +65,13 @@ const CHANNELS = {
   },
 } as const;
 
-export default function ChatBox({ channel = 'global', className }: ChatBoxProps) {
+export default function ChatBox({
+  channel = 'global',
+  className,
+  readOnly = false,
+  readOnlyNote,
+  title,
+}: ChatBoxProps) {
   const [input, setInput] = useState('');
   const myId = useGameStore(state => state.myId);
   const typingPlayers = useGameStore(state => state.typingPlayers);
@@ -115,9 +134,14 @@ export default function ChatBox({ channel = 'global', className }: ChatBoxProps)
       <header className={clsx('px-4 py-3 border-b flex justify-between items-center shrink-0', cfg.header)}>
         <h3 className={clsx('text-xs font-semibold uppercase tracking-[0.16em] flex items-center gap-2', cfg.accent)}>
           <Icon size={14} />
-          {cfg.title}
+          {title ?? cfg.title}
         </h3>
-        {cfg.tag && (
+        {readOnly ? (
+          <span className="flex items-center gap-1 rounded-full border border-edge/60 bg-base/60
+            px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+            <Eye size={10} /> Watching
+          </span>
+        ) : cfg.tag && (
           <span className={clsx(
             'text-[9px] px-2 py-0.5 rounded-full border font-semibold uppercase tracking-[0.14em]',
             channel === 'mafia'
@@ -203,6 +227,14 @@ export default function ChatBox({ channel = 'global', className }: ChatBoxProps)
         <div ref={messagesEndRef} />
       </div>
 
+      {readOnly ? (
+        <div className="shrink-0 border-t border-edge/50 bg-elevated/60 px-4 py-3">
+          <p className="flex items-center justify-center gap-2 text-center text-[11px] leading-relaxed text-ink-muted">
+            <Eye size={12} className="shrink-0" />
+            {readOnlyNote ?? 'You can read this channel, but not write to it.'}
+          </p>
+        </div>
+      ) : (
       <form onSubmit={handleSubmit} className="p-3 border-t border-edge/50 flex gap-2 shrink-0 bg-elevated/60">
         <input
           type="text"
@@ -227,6 +259,7 @@ export default function ChatBox({ channel = 'global', className }: ChatBoxProps)
           <Send size={16} />
         </button>
       </form>
+      )}
     </div>
   );
 }

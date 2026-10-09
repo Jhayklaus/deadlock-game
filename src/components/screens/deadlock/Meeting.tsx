@@ -3,6 +3,7 @@ import { useGameStore } from '../../../lib/store';
 import { useVoting } from '../../../hooks/useVoting';
 import { getRoom } from '../../../data/deadlockMap';
 import ChatBox from '../../ChatBox';
+import DeadChat from '../../DeadChat';
 import MobileChatDrawer from '../../MobileChatDrawer';
 import Graveyard from '../../Graveyard';
 import { Card } from '../../ui/Card';
@@ -49,7 +50,7 @@ export default function Meeting() {
           <div className="w-full"><Graveyard /></div>
         </Card>
         <div className="flex justify-center h-full min-h-[480px]">
-          <ChatBox channel="dead" />
+          <DeadChat />
         </div>
       </div>
     );

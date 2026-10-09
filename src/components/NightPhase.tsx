@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { networkManager } from '../lib/network';
 import { soundManager } from '../lib/sound';
 import ChatBox from './ChatBox';
+import DeadChat from './DeadChat';
 import MobileChatDrawer from './MobileChatDrawer';
 import LastWillEditor from './LastWillEditor';
 import Graveyard from './Graveyard';
@@ -125,7 +126,7 @@ export default function NightPhase() {
           </div>
         </Card>
         <div className="hidden lg:flex justify-center h-full min-h-[500px]">
-          <ChatBox channel="dead" />
+          <DeadChat />
         </div>
         <MobileChatDrawer channel="dead" />
       </div>
@@ -180,7 +181,7 @@ export default function NightPhase() {
             </div>
         </Card>
         <div className="flex justify-center h-full min-h-[500px]">
-            <ChatBox channel="dead" />
+            <DeadChat />
         </div>
       </div>
     );

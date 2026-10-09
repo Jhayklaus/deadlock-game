@@ -2802,6 +2802,18 @@ class NetworkManager {
           break;
       
       case 'CHAT_MESSAGE':
+          // The dead can read the living channel but never write to it. The UI
+          // gives them no composer there, so anything arriving on this path has
+          // gone around it; drop it rather than relay it.
+          if (
+              store.myId === store.hostId &&
+              (!message.payload.channel || message.payload.channel === 'global') &&
+              store.players[message.senderId] &&
+              !store.players[message.senderId].isAlive
+          ) {
+              return;
+          }
+
           if (message.payload.channel === 'mafia') {
               // Mafia Chat Logic
               if (store.myId === store.hostId) {
@@ -3031,6 +3043,12 @@ class NetworkManager {
 
   sendChatMessage(content: string, channel: 'global' | 'mafia' | 'dead' = 'global') {
     const store = useGameStore.getState();
+
+    // The dead read the living channel; they do not write to it. The receive
+    // path drops this too, but the host relays its own messages without going
+    // through that path, so a dead host would otherwise still be heard.
+    const me = store.players[store.myId];
+    if (channel === 'global' && me && !me.isAlive) return;
     const chatMsg: NetworkMessage = {
       type: 'CHAT_MESSAGE',
       senderId: store.myId,

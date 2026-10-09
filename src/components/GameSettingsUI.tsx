@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useGameStore } from '../lib/store';
 import { networkManager } from '../lib/network';
 import { GameSettings } from '../lib/types';
-import { Settings, Clock, Users, Gavel, Radar, ChevronDown, Plus, Minus } from 'lucide-react';
+import { Settings, Clock, Users, Gavel, Radar, Eye, ChevronDown, Plus, Minus } from 'lucide-react';
 import { VoiceRoomSetting } from './VoiceRoom';
 import { clsx } from 'clsx';
 
@@ -211,6 +211,29 @@ export default function GameSettingsUI() {
             )}
           </div>
         )}
+
+        {/* Applies to every mode — they all vote someone out. */}
+        <div className="space-y-3">
+          <h4 className="font-semibold text-ink-muted border-b border-edge/50 pb-2 flex items-center gap-2 text-xs uppercase tracking-wider">
+            <Eye size={14} /> Reveals
+          </h4>
+
+          <label className="flex items-center justify-between gap-4 p-3 rounded-xl border border-edge/60 bg-base/40 cursor-pointer">
+            <span>
+              <span className="block text-sm font-semibold text-ink">Reveal role when voted out</span>
+              <span className="block text-xs text-ink-muted mt-0.5">
+                Off by default. Keeping it hidden means the table has to argue about
+                whether the vote was right, instead of being told.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={settings.revealRoleOnElimination === true}
+              onChange={e => networkManager.updateSettings({ ...settings, revealRoleOnElimination: e.target.checked })}
+              className="w-5 h-5 shrink-0 accent-current text-accent cursor-pointer"
+            />
+          </label>
+        </div>
 
         {/* Timers */}
         <div className="space-y-6">

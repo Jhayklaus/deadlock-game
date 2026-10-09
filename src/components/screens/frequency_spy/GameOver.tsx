@@ -6,6 +6,7 @@ import ChatBox from '../../ChatBox';
 import MobileChatDrawer from '../../MobileChatDrawer';
 import { Trophy, Skull, Crown, RotateCcw, Radio } from 'lucide-react';
 import { clsx } from 'clsx';
+import { didIWin } from '../../../lib/winner';
 
 function SpectrumReveal({ value, lowLabel, highLabel, label, color }: {
   value: number; lowLabel: string; highLabel: string; label: string; color: string;
@@ -50,6 +51,7 @@ export default function GameOver() {
 
   const isHost = myId === hostId;
   const spyWon = modeWinnerId === 'frequency_spy';
+  const iWon = didIWin(modeWinnerId, allModeRoles, myId);
   const winnerColor = spyWon ? '#f87171' : '#22d3ee';
   const topic = myAssignedWord ?? '';
   const [lowLabel, highLabel] = (myAssignedCategory ?? 'Low|High').split('|');
@@ -61,9 +63,9 @@ export default function GameOver() {
         <div className="p-6 md:p-12 text-center border-b border-cyan-800/30 relative overflow-hidden">
           <div className="absolute inset-0 opacity-8" style={{ backgroundColor: winnerColor }} />
           <div className="relative z-10 flex flex-col items-center">
-            {spyWon
-              ? <Skull size={64} className="mb-6" style={{ color: winnerColor }} />
-              : <Trophy size={64} className="text-amber-400 mb-6" />
+            {iWon
+              ? <Trophy size={64} className="text-amber-400 mb-6" />
+              : <Skull size={64} className="mb-6" style={{ color: winnerColor }} />
             }
             <div className="flex items-center gap-3 mb-4">
               <Radio size={28} style={{ color: winnerColor }} />
@@ -71,6 +73,12 @@ export default function GameOver() {
                 {modeWinnerLabel ?? (spyWon ? 'Rogue Wins!' : 'Operatives Win!')}
               </h2>
             </div>
+            {/* Your own result, which this screen never showed. */}
+            <p className={`text-2xl font-bold tracking-widest uppercase font-share-tech ${
+              iWon ? 'text-amber-400' : 'text-cyan-700'
+            }`}>
+              {iWon ? 'Signal Locked' : 'Off Frequency'}
+            </p>
             {modeWinnerDescription && (
               <p className="text-cyan-300/60 mt-4 max-w-md font-share-tech">{modeWinnerDescription}</p>
             )}

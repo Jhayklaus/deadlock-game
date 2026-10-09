@@ -15,10 +15,11 @@ import { Role } from '../lib/types';
  * art is a bonus when it happens to be available.
  */
 export default function EliminationReveal() {
-  const { eliminationResult, players, allRoles } = useGameStore(state => ({
+  const { eliminationResult, players, allRoles, revealRole } = useGameStore(state => ({
     eliminationResult: state.eliminationResult,
     players: state.players,
     allRoles: state.allRoles,
+    revealRole: state.settings.revealRoleOnElimination === true,
   }));
 
   const [visible, setVisible] = useState(false);
@@ -34,9 +35,12 @@ export default function EliminationReveal() {
   const player = eliminatedId ? players[eliminatedId] : null;
 
   // Classic art, when this mode has classic roles at all.
-  const classicRole: Role | undefined = eliminatedId
-    ? (allRoles?.[eliminatedId] || player?.role)
-    : undefined;
+  //
+  // Gated on the setting rather than on `revealedRole` being absent, because
+  // the host holds `allRoles` locally: reading it here would show the host a
+  // role nobody else can see, which is worse than showing everyone.
+  const classicRole: Role | undefined =
+    revealRole && eliminatedId ? (allRoles?.[eliminatedId] || player?.role) : undefined;
   const theme = classicRole ? roleThemes[classicRole] : null;
 
   // Whatever we can say they were — the classic role, or the mode's label.
@@ -75,6 +79,13 @@ export default function EliminationReveal() {
               <p className="text-sm uppercase tracking-[0.3em] text-danger font-semibold mb-7">
                 was voted out
               </p>
+
+              {!roleLabel && (
+                <p className="max-w-xs text-sm leading-relaxed text-ink-muted">
+                  Their role goes with them. Work out whether the town got it
+                  right.
+                </p>
+              )}
 
               {roleLabel && (
                 <div

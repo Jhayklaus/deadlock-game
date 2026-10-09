@@ -1,4 +1,5 @@
 import { useGameStore } from '../lib/store';
+import MyRoleBanner from './MyRoleBanner';
 import { clsx } from 'clsx';
 import { useState, useEffect } from 'react';
 import { networkManager } from '../lib/network';
@@ -16,15 +17,15 @@ import { getNightAbility } from '../lib/nightRoles';
 import { isMafiaRole } from '../lib/types';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
-import { Badge } from './ui/Badge';
 
 export default function NightPhase() {
-  const { myRole, players, myId, mafiaPartners, myDeathReason } = useGameStore(state => ({
+  const { myRole, players, myId, mafiaPartners, myDeathReason, myKilledBy } = useGameStore(state => ({
     myRole: state.myRole,
     players: state.players,
     myId: state.myId,
     mafiaPartners: state.mafiaPartners,
-    myDeathReason: state.myDeathReason
+    myDeathReason: state.myDeathReason,
+    myKilledBy: state.myKilledBy,
   }));
 
   useEffect(() => {
@@ -96,10 +97,29 @@ export default function NightPhase() {
           <h2 className="font-display text-3xl text-danger mb-3">You are Dead</h2>
           <p className="text-ink-muted mb-6">The dead tell no tales... but they can whisper to each other.</p>
           {myDeathReason && (
-             <div className="bg-red-950/50 border border-red-900/50 p-4 rounded-xl mb-6 w-full">
+             <div className="bg-red-950/50 border border-red-900/50 p-4 rounded-xl mb-4 w-full">
                 <p className="text-red-300 font-semibold">{myDeathReason}</p>
              </div>
           )}
+
+          {/* Only this player ever sees this. It is not posted to dead chat,
+              because a living Medium reads that channel — telling the room
+              would hand them the Mafia. Passing it on is your call. */}
+          {myKilledBy && (
+            <div className="mb-6 w-full rounded-xl border border-danger/40 bg-danger/10 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-ink-muted">
+                Killed by
+              </p>
+              <p className="mt-1 text-xl font-bold text-danger">{myKilledBy}</p>
+              <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+                Only you know this. Share it in the dead chat if you want to —
+                a Medium may be listening.
+              </p>
+            </div>
+          )}
+
+          <MyRoleBanner className="mb-6 w-full" />
+
           <div className="w-full">
             <Graveyard />
           </div>
@@ -132,7 +152,10 @@ export default function NightPhase() {
             </p>
         </Card>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <NightTasks />
+            <div className="space-y-6">
+              <MyRoleBanner />
+              <NightTasks />
+            </div>
             <div className="space-y-6">
               <LastWillEditor />
               <Graveyard />
@@ -150,6 +173,7 @@ export default function NightPhase() {
             <h2 className="font-display text-2xl text-violet-300 mb-3">The Spirit World</h2>
             <p className="text-ink-muted mb-6">You can hear the whispers of the dead.</p>
             <div className="w-full">
+                <MyRoleBanner className="mb-6" />
                 <LastWillEditor />
                 <div className="mt-6"></div>
                 <Graveyard />
@@ -176,23 +200,15 @@ export default function NightPhase() {
                 </div>
                 <div>
                     <h2 className="text-2xl font-bold text-ink">Night Phase</h2>
-                    <div className="flex items-center gap-2 mt-1">
-                        <span className="text-ink-muted text-sm">Role:</span>
-                        <Badge 
-                            variant={
-                                myRole === 'mafia' ? 'danger' : 
-                                myRole === 'detective' ? 'info' : 
-                                myRole === 'doctor' ? 'success' :
-                                myRole === 'vigilante' ? 'warning' :
-                                myRole === 'serial_killer' ? 'danger' : 
-                                'default'
-                            }
-                        >
-                            {myRole}
-                        </Badge>
-                    </div>
+                    <p className="text-ink-muted text-sm mt-1">
+                      Make your move before the sun comes up.
+                    </p>
                 </div>
             </div>
+
+            {/* What you are and what it does, so nobody has to remember a
+                reveal card from twenty minutes ago. */}
+            <MyRoleBanner className="mb-6" />
             
             {!hasActed ? (
             <>

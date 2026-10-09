@@ -9,8 +9,22 @@ interface TimerProps {
 }
 
 export function Timer({ className }: TimerProps) {
-  const timerEnd = useGameStore(state => state.timerEnd);
+  const { timerEnd, phase, uiScreen } = useGameStore(state => ({
+    timerEnd: state.timerEnd,
+    phase: state.phase,
+    uiScreen: state.uiScreen,
+  }));
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+  /**
+   * Phases that actually run a clock.
+   *
+   * `timerEnd` is persisted, so a finished or abandoned game left one in the
+   * past and the pill sat there reading 0:00 on lobby and join screens where
+   * nothing was being timed.
+   */
+  const timed =
+    uiScreen === 'in_lobby' && phase !== 'lobby' && phase !== 'game_over';
 
   useEffect(() => {
     if (!timerEnd) {
@@ -43,7 +57,7 @@ export function Timer({ className }: TimerProps) {
     }
   }, [timeLeft]);
 
-  if (timeLeft === null) return null;
+  if (timeLeft === null || !timed) return null;
 
   const urgent = timeLeft <= 10;
 

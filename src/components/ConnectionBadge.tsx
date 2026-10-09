@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { clsx } from 'clsx';
 import { Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { networkManager } from '../lib/network';
+import { useGameStore } from '../lib/store';
 import type { ConnectionState } from '../lib/types';
 
 /**
@@ -16,8 +17,25 @@ import type { ConnectionState } from '../lib/types';
  */
 export default function ConnectionBadge() {
   const [state, setState] = useState<ConnectionState>(() => networkManager.getConnectionState());
+  const joinWaiting = useGameStore(s => s.joinWaiting);
 
   useEffect(() => networkManager.onConnectionChange(setState), []);
+
+  // The socket is fine but the room has not answered. Almost always a relay
+  // waking from idle, which takes long enough to look like a failure.
+  if (state === 'online' && joinWaiting) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10
+          px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-warning"
+      >
+        <Loader2 size={12} className="animate-spin" />
+        <span className="hidden sm:inline">Waking the server</span>
+      </div>
+    );
+  }
 
   if (state === 'online') return null;
 

@@ -2,7 +2,6 @@ import { useGameStore } from '../../../lib/store';
 import { clsx } from 'clsx';
 import { useVoting } from '../../../hooks/useVoting';
 import ChatBox from '../../ChatBox';
-import LastWillEditor from '../../LastWillEditor';
 import Graveyard from '../../Graveyard';
 import MobileChatDrawer from '../../MobileChatDrawer';
 import { Card } from '../../ui/Card';
@@ -98,10 +97,10 @@ export default function DayPhase() {
 
           <Card variant="default" className="text-center mb-8 relative bg-violet-950/40 border-violet-800/30">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
-              <Badge variant="info" className="text-[10px] uppercase tracking-widest font-bold bg-violet-900/80 border-violet-700/50 text-violet-200">Morning Report</Badge>
+              <Badge variant="info" className="text-[10px] uppercase tracking-widest font-bold bg-violet-900/80 border-violet-700/50 text-violet-200">The Table</Badge>
             </div>
             <p className="text-xl text-violet-100 font-medium leading-relaxed pt-2 font-playfair">
-              {lastNightResult || "The night was uneventful..."}
+              {lastNightResult || "Everyone gives one clue. One of you is guessing."}
             </p>
           </Card>
 
@@ -185,7 +184,6 @@ export default function DayPhase() {
         </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <LastWillEditor />
           <Graveyard />
         </div>
       </div>

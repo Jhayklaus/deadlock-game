@@ -7,6 +7,7 @@ interface GameActions {
   setHostId: (id: PlayerId) => void;
   setRoomCode: (code: string | null) => void;
   setPendingJoinCode: (code: string | null) => void;
+  setJoinWaiting: (waiting: boolean) => void;
   addPlayer: (player: Player) => void;
   updatePlayer: (id: PlayerId, updates: Partial<Player>) => void;
   removePlayer: (id: PlayerId) => void;
@@ -21,11 +22,12 @@ interface GameActions {
   setGameOver: (winner: ClassicWinner, allRoles: Record<PlayerId, Role>) => void;
   resetGame: () => void;
   resetSession: () => void;
+  resetForNewRoom: () => void;
   resetToLobby: () => void;
   setSettings: (settings: GameSettings) => void;
   addMessage: (message: ChatMessage) => void;
   setTimerEnd: (timestamp: number | null) => void;
-  setMyDeathReason: (reason: string | null) => void;
+  setMyDeathReason: (reason: string | null, killedBy?: string | null) => void;
   setTypingPlayers: (typingPlayers: Record<PlayerId, boolean>) => void;
   // v2: mode actions
   setGameMode: (mode: GameModeId) => void;
@@ -59,6 +61,7 @@ interface GameActions {
 const DEFAULT_SETTINGS: GameSettings = {
   voiceRoomUrl: null,
   nightTasksEnabled: true,
+  revealRoleOnElimination: false,
   // Deadlock
   deadlockImpostors: 1,
   deadlockTasks: 3,
@@ -112,6 +115,7 @@ const initialState: GameState = {
   myId: '',
   roomCode: null,
   pendingJoinCode: null,
+  joinWaiting: false,
   players: {},
   phase: 'lobby',
   error: null,
@@ -126,6 +130,7 @@ const initialState: GameState = {
   messages: [],
   timerEnd: null,
   myDeathReason: null,
+  myKilledBy: null,
   typingPlayers: {},
   // v2
   gameMode: 'classic_mafia',
@@ -162,6 +167,7 @@ export const useGameStore = create<GameState & GameActions>()(
       setHostId: (id) => set({ hostId: id }),
       setRoomCode: (roomCode) => set({ roomCode }),
       setPendingJoinCode: (pendingJoinCode) => set({ pendingJoinCode }),
+      setJoinWaiting: (joinWaiting) => set({ joinWaiting }),
       
       addPlayer: (player) => set((state) => ({
         players: { ...state.players, [player.id]: player }
@@ -195,7 +201,7 @@ export const useGameStore = create<GameState & GameActions>()(
       setLastNightResult: (result) => set({ lastNightResult: result }),
       setEliminationResult: (result) => set({ eliminationResult: result }),
       setVoteCounts: (voteCounts) => set({ voteCounts }),
-      setMyDeathReason: (reason) => set({ myDeathReason: reason }),
+      setMyDeathReason: (reason, killedBy = null) => set({ myDeathReason: reason, myKilledBy: killedBy }),
       
       setGameOver: (winner, allRoles) => set({ winner, allRoles, phase: 'game_over' }),
 
@@ -213,6 +219,28 @@ export const useGameStore = create<GameState & GameActions>()(
       }))
       },
 
+      /**
+       * Clears everything belonging to a *game*, keeping who you are and how
+       * you like to play.
+       *
+       * Opening a new room used to leave the last game's state untouched:
+       * `phase` was still 'game_over', the winner was still set, and the old
+       * roster — bots included — was still in `players`, so the host was added
+       * alongside them. The new room then rendered the previous game's result
+       * under the new mode's styling, and the only way out was clearing
+       * localStorage by hand.
+       */
+      resetForNewRoom: () => set((state) => ({
+        ...initialState,
+        // Identity and preferences are not part of the game.
+        myId: state.myId,
+        settings: state.settings,
+        gameMode: state.gameMode,
+        selectedMode: state.selectedMode,
+        uiScreen: state.uiScreen,
+        pendingJoinCode: state.pendingJoinCode,
+      })),
+
       resetToLobby: () => set((state) => {
         const resetPlayers = Object.entries(state.players).reduce((acc, [id, player]) => ({
           ...acc,
@@ -224,6 +252,8 @@ export const useGameStore = create<GameState & GameActions>()(
           players: resetPlayers,
           myRole: null,
           mafiaPartners: [],
+          myDeathReason: null,
+          myKilledBy: null,
           lastNightResult: '',
           eliminationResult: null,
           voteCounts: {},
@@ -305,6 +335,10 @@ export const useGameStore = create<GameState & GameActions>()(
         mafiaPartners: state.mafiaPartners,
         lastNightResult: state.lastNightResult,
         eliminationResult: state.eliminationResult,
+        // Kept across a refresh: being told how (and by whom) you died is a
+        // one-shot private message, so losing it on reload loses it for good.
+        myDeathReason: state.myDeathReason,
+        myKilledBy: state.myKilledBy,
         winner: state.winner,
         allRoles: state.allRoles,
         settings: state.settings,

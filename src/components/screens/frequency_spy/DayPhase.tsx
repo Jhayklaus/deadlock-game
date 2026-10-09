@@ -2,7 +2,6 @@ import { useGameStore } from '../../../lib/store';
 import { clsx } from 'clsx';
 import { useVoting } from '../../../hooks/useVoting';
 import ChatBox from '../../ChatBox';
-import LastWillEditor from '../../LastWillEditor';
 import Graveyard from '../../Graveyard';
 import MobileChatDrawer from '../../MobileChatDrawer';
 import { Card } from '../../ui/Card';
@@ -126,7 +125,7 @@ export default function DayPhase() {
               </Badge>
             </div>
             <p className="text-xl text-cyan-100 font-medium leading-relaxed pt-2 font-share-tech">
-              {lastNightResult || "// no incidents detected"}
+              {lastNightResult || "// transmit a clue for your number"}
             </p>
           </Card>
 
@@ -198,7 +197,6 @@ export default function DayPhase() {
         </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <LastWillEditor />
           <Graveyard />
         </div>
       </div>

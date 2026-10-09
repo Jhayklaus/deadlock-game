@@ -6,7 +6,8 @@ import ModeGuide from '../ModeGuide';
 import { getMode } from '../../modes/registry';
 // Side-effect import: ensures the registry is populated before we read it.
 import '../../modes/index';
-import { Sword, BookOpen, Eye, Radio, Radar, ArrowRight, Users, HelpCircle } from 'lucide-react';
+import { Sword, BookOpen, Eye, Radio, Radar, ArrowRight, Users, HelpCircle, Link2 as LinkIcon } from 'lucide-react';
+import { clsx } from 'clsx';
 
 interface ModeCard {
   id: GameModeId;
@@ -20,6 +21,15 @@ interface ModeCard {
   tint: string;
   ring: string;
   glow: string;
+  /**
+   * The card's own coloured base.
+   *
+   * A plain black ledge is how this works on a light page; on ours it would be
+   * black on near-black and read as nothing. Each card sits on a band of its
+   * own colour instead, which gives the depth and doubles as the mode's
+   * signature.
+   */
+  ledge: string;
   font: string;
 }
 
@@ -35,6 +45,7 @@ const MODES: ModeCard[] = [
     tint: 'bg-red-500/10',
     ring: 'group-hover:border-red-500/60',
     glow: 'group-hover:shadow-[0_12px_48px_-12px_rgba(220,38,38,0.45)]',
+    ledge: 'ledge-mafia',
     font: 'font-creepster tracking-wider',
   },
   {
@@ -48,6 +59,7 @@ const MODES: ModeCard[] = [
     tint: 'bg-violet-500/10',
     ring: 'group-hover:border-violet-500/60',
     glow: 'group-hover:shadow-[0_12px_48px_-12px_rgba(139,92,246,0.45)]',
+    ledge: 'ledge-impostor',
     font: 'font-playfair',
   },
   {
@@ -61,6 +73,7 @@ const MODES: ModeCard[] = [
     tint: 'bg-amber-500/10',
     ring: 'group-hover:border-amber-500/60',
     glow: 'group-hover:shadow-[0_12px_48px_-12px_rgba(245,158,11,0.45)]',
+    ledge: 'ledge-undercover',
     font: 'font-oswald tracking-wide',
   },
   {
@@ -74,6 +87,7 @@ const MODES: ModeCard[] = [
     tint: 'bg-cyan-500/10',
     ring: 'group-hover:border-cyan-500/60',
     glow: 'group-hover:shadow-[0_12px_48px_-12px_rgba(34,211,238,0.45)]',
+    ledge: 'ledge-frequency',
     font: 'font-share-tech tracking-widest',
   },
   {
@@ -87,6 +101,7 @@ const MODES: ModeCard[] = [
     tint: 'bg-emerald-500/10',
     ring: 'group-hover:border-emerald-500/60',
     glow: 'group-hover:shadow-[0_12px_48px_-12px_rgba(16,185,129,0.45)]',
+    ledge: 'ledge-deadlock',
     font: 'font-share-tech tracking-widest',
   },
 ];
@@ -111,26 +126,37 @@ export default function ModePicker() {
   return (
     <div className="w-full max-w-5xl mx-auto px-4 animate-in fade-in duration-500">
       <div className="text-center mb-10 md:mb-14">
-        <p className="text-ink-muted text-[11px] uppercase tracking-[0.35em] mb-4">
-          Social deduction, five ways
-        </p>
+        {/* A bordered chip sets the expectations in one glance; the same line
+            as plain centred text simply read as a caption and was skipped. */}
+        <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-edge/70
+          bg-elevated/70 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-ink-muted
+          solid-shadow-sm">
+          5 games · one room · no sign-up
+        </span>
+
         <h1 className="font-heading text-display-sm md:text-display-lg font-bold text-ink mb-4">
           Choose your game
         </h1>
         <p className="text-ink-muted text-sm max-w-md mx-auto leading-relaxed">
-          Pick a mode to host, or join a friend&apos;s room with their code. New to one?
-          Read its walkthrough first.
+          Pick one to host. New to a mode? Read its walkthrough first.
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger">
-        {MODES.map(mode => (
+        {MODES.map((mode, i) => (
           <div
             key={mode.id}
-            className={`group relative rounded-2xl border border-edge/60 bg-elevated/60
-              backdrop-blur-sm overflow-hidden edge-light p-6
-              transition-all duration-300 ease-out-expo
-              hover:-translate-y-1 ${mode.ring} ${mode.glow}`}
+            className={clsx(
+              `group relative rounded-2xl border border-edge/60 bg-elevated/80 overflow-hidden
+               p-6 press
+               transition-[transform,box-shadow,border-color] duration-300 ease-out-expo`,
+              // Alternating tilt so the grid reads as cards dropped on a table
+              // rather than a spreadsheet. Straightens on hover.
+              i % 2 === 0 ? 'tilt-l' : 'tilt-r',
+              'hover:tilt-none hover:-translate-y-1',
+              mode.ledge,
+              mode.ring
+            )}
           >
             {/* Full-card hit area. Kept as a sibling rather than a wrapper so
                 the walkthrough control below is not a button inside a button. */}
@@ -168,11 +194,12 @@ export default function ModePicker() {
             </div>
 
             <div className="relative z-20 flex items-center justify-between gap-3">
-              <span className="flex items-center gap-1.5 text-[11px] text-ink-muted/70 pointer-events-none">
+              <span className="pointer-events-none inline-flex items-center gap-1.5 rounded-full
+                border border-edge/70 bg-base/70 px-2.5 py-1 text-[11px] font-semibold text-ink-muted">
                 <Users size={12} />
                 {/* Read from the mode definition so this can never drift
                     from the count the lobby actually enforces. */}
-                {getMode(mode.id).minPlayers}–{getMode(mode.id).maxPlayers} players
+                {getMode(mode.id).minPlayers}–{getMode(mode.id).maxPlayers}
               </span>
 
               <button
@@ -192,6 +219,20 @@ export default function ModePicker() {
             />
           </div>
         ))}
+      </div>
+
+      {/* Joining is the other half of how people arrive, and it had no home on
+          this screen — you had to pick a mode first and find the tab. */}
+      <div className="mt-10 flex flex-col items-center gap-3 text-center">
+        <button
+          onClick={() => { setSelectedMode('classic_mafia'); syncAddressBar(null); setUiScreen('pre_join'); }}
+          className="inline-flex min-h-[44px] items-center gap-2 px-3 text-sm font-semibold
+            text-ink-muted underline decoration-dotted underline-offset-4 transition-colors hover:text-ink"
+        >
+          <LinkIcon size={14} />
+          Got a code? Join a room
+        </button>
+        <p className="text-[11px] text-ink-muted/70">No sign-up. Just a name.</p>
       </div>
 
       {guideFor && (

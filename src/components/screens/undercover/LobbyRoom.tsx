@@ -122,7 +122,7 @@ export default function LobbyRoom() {
                 {!canStart && (
                   <div className="bg-amber-900/20 border border-amber-900/50 rounded-lg p-3 flex items-start gap-2">
                     <ShieldAlert size={16} className="text-amber-500 shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-200/80">Need at least 3 agents to begin.</p>
+                    <p className="text-xs text-amber-200/80">{`Need at least ${minPlayers} agents to begin.`}</p>
                   </div>
                 )}
               </div>

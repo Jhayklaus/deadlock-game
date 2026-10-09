@@ -83,6 +83,22 @@ Four things make that survivable:
    watchdog re-checks the deadline against wall time every few seconds and on
    tab wake, so the host glancing away no longer freezes the game for everyone.
 
+### Cold starts
+
+The relay is a long-lived Node process, so it cannot run on serverless
+functions that recycle connections — it needs a host that keeps a socket open
+for the length of a game (Render, Railway, Fly, a VPS). On a free tier that
+sleeps when idle, the first player after a quiet spell waits out a cold start.
+Two ways to avoid it:
+
+- Set the `RELAY_HEALTH_URL` repository variable and the included
+  `.github/workflows/keep-warm.yml` pings `/api/health` every 10 minutes.
+- Or pay for a tier that does not sleep, which is the better answer once the
+  game gets real use.
+
+Either way the app no longer waits silently: the join is retried for about
+15 seconds and the header says "Waking the server" while it does.
+
 ## 🤖 Smart AI Integration
 
 MAFIEUX now features intelligent bots that go beyond random actions:

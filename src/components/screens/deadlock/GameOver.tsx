@@ -2,31 +2,38 @@ import { useGameStore } from '../../../lib/store';
 import { networkManager } from '../../../lib/network';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
-import { Trophy, RotateCcw, Crosshair, Wrench } from 'lucide-react';
+import { Trophy, Skull, RotateCcw, Crosshair, Wrench } from 'lucide-react';
+import { didIWin } from '../../../lib/winner';
 
 export default function GameOver() {
-  const { modeWinnerId, modeWinnerLabel, modeWinnerDescription, players, allModeRoles, isHost } =
+  const { modeWinnerId, modeWinnerLabel, modeWinnerDescription, players, allModeRoles, myId, isHost } =
     useGameStore(state => ({
       modeWinnerId: state.modeWinnerId,
       modeWinnerLabel: state.modeWinnerLabel,
       modeWinnerDescription: state.modeWinnerDescription,
       players: state.players,
       allModeRoles: state.allModeRoles,
+      myId: state.myId,
       isHost: state.myId === state.hostId,
     }));
 
   const impostorsWon = modeWinnerId === 'impostor';
+  const iWon = didIWin(modeWinnerId, allModeRoles, myId);
 
   return (
     <div className="w-full max-w-lg mx-auto animate-in fade-in zoom-in-95 duration-500">
       <Card variant="glass" className="text-center py-10">
         <div className={`w-16 h-16 mx-auto mb-5 rounded-2xl grid place-items-center border ${
-          impostorsWon ? 'bg-danger/10 border-danger/40 text-danger' : 'bg-success/10 border-success/40 text-success'
+          iWon ? 'bg-success/10 border-success/40 text-success' : 'bg-danger/10 border-danger/40 text-danger'
         }`}>
-          <Trophy size={28} />
+          {iWon ? <Trophy size={28} /> : <Skull size={28} />}
         </div>
 
-        <p className="text-[10px] uppercase tracking-[0.3em] text-ink-muted mb-1">Game over</p>
+        <p className={`text-[10px] uppercase tracking-[0.3em] mb-1 font-bold ${
+          iWon ? 'text-success' : 'text-ink-muted'
+        }`}>
+          {iWon ? 'You win' : 'You lose'}
+        </p>
         <h1 className={`font-display text-4xl mb-3 ${impostorsWon ? 'text-danger' : 'text-success'}`}>
           {modeWinnerLabel ?? 'Nobody'} win
         </h1>

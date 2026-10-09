@@ -6,6 +6,7 @@ import ChatBox from '../../ChatBox';
 import MobileChatDrawer from '../../MobileChatDrawer';
 import { Trophy, Skull, Crown, RotateCcw, Eye } from 'lucide-react';
 import { clsx } from 'clsx';
+import { didIWin } from '../../../lib/winner';
 
 export default function GameOver() {
   const { modeWinnerId, modeWinnerLabel, modeWinnerDescription, players, myId, hostId, allModeRoles } = useGameStore(state => ({
@@ -22,7 +23,10 @@ export default function GameOver() {
 
   const isHost = myId === hostId;
   const undercoverWon = modeWinnerId === 'undercover';
-  const iWon = (undercoverWon && players[myId]?.isAlive) || (!undercoverWon && !players[myId]?.isAlive);
+  // Which side you were on, not whether you were still breathing. Being alive
+  // is not the same question: a surviving civilian read as a winner when the
+  // Undercoverts took it.
+  const iWon = didIWin(modeWinnerId, allModeRoles, myId);
   const winnerColor = undercoverWon ? 'text-amber-400' : 'text-emerald-400';
 
   return (

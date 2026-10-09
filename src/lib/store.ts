@@ -7,6 +7,7 @@ interface GameActions {
   setHostId: (id: PlayerId) => void;
   setRoomCode: (code: string | null) => void;
   setPendingJoinCode: (code: string | null) => void;
+  setJoinWaiting: (waiting: boolean) => void;
   addPlayer: (player: Player) => void;
   updatePlayer: (id: PlayerId, updates: Partial<Player>) => void;
   removePlayer: (id: PlayerId) => void;
@@ -21,6 +22,7 @@ interface GameActions {
   setGameOver: (winner: ClassicWinner, allRoles: Record<PlayerId, Role>) => void;
   resetGame: () => void;
   resetSession: () => void;
+  resetForNewRoom: () => void;
   resetToLobby: () => void;
   setSettings: (settings: GameSettings) => void;
   addMessage: (message: ChatMessage) => void;
@@ -113,6 +115,7 @@ const initialState: GameState = {
   myId: '',
   roomCode: null,
   pendingJoinCode: null,
+  joinWaiting: false,
   players: {},
   phase: 'lobby',
   error: null,
@@ -164,6 +167,7 @@ export const useGameStore = create<GameState & GameActions>()(
       setHostId: (id) => set({ hostId: id }),
       setRoomCode: (roomCode) => set({ roomCode }),
       setPendingJoinCode: (pendingJoinCode) => set({ pendingJoinCode }),
+      setJoinWaiting: (joinWaiting) => set({ joinWaiting }),
       
       addPlayer: (player) => set((state) => ({
         players: { ...state.players, [player.id]: player }
@@ -214,6 +218,28 @@ export const useGameStore = create<GameState & GameActions>()(
         pendingJoinCode: state.pendingJoinCode,
       }))
       },
+
+      /**
+       * Clears everything belonging to a *game*, keeping who you are and how
+       * you like to play.
+       *
+       * Opening a new room used to leave the last game's state untouched:
+       * `phase` was still 'game_over', the winner was still set, and the old
+       * roster — bots included — was still in `players`, so the host was added
+       * alongside them. The new room then rendered the previous game's result
+       * under the new mode's styling, and the only way out was clearing
+       * localStorage by hand.
+       */
+      resetForNewRoom: () => set((state) => ({
+        ...initialState,
+        // Identity and preferences are not part of the game.
+        myId: state.myId,
+        settings: state.settings,
+        gameMode: state.gameMode,
+        selectedMode: state.selectedMode,
+        uiScreen: state.uiScreen,
+        pendingJoinCode: state.pendingJoinCode,
+      })),
 
       resetToLobby: () => set((state) => {
         const resetPlayers = Object.entries(state.players).reduce((acc, [id, player]) => ({

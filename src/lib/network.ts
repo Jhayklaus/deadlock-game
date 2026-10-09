@@ -910,6 +910,12 @@ class NetworkManager {
     const myId = useGameStore.getState().myId;
     if (!myId || !this.socket) return;
 
+    // A new room starts empty. Without this the previous game's phase, winner
+    // and roster were still in the store, so the fresh lobby rendered the last
+    // game's result.
+    useGameStore.getState().resetForNewRoom();
+    this.resetHostState();
+
     this.socket.emit('host_game', myId);
 
     this.socket.once('host_success', () => {
@@ -928,6 +934,29 @@ class NetworkManager {
         this.startStateSync();
         this.startPhaseWatchdog();
     });
+  }
+
+  /**
+   * Drops the host-side game state this manager holds.
+   *
+   * The store is only half the picture — roles, votes, task tallies and the
+   * private host state live here, and would otherwise follow the player into
+   * their next room.
+   */
+  private resetHostState() {
+      this.hostPrivateState = {};
+      this.modeRoles = {};
+      this.perPlayerPayloads = {};
+      this.deathInfo = {};
+      this.nightActions = emptyNightActions();
+      this.dayVotes = {};
+      this.trialVerdicts = {};
+      this.taskCompletions = {};
+      this.lastWills = {};
+      this.abilityUses = {};
+      this.executionerTargets = {};
+      this.neutralWinners = new Set();
+      this.lastResolvedDeadline = null;
   }
 
   /** The code to put in an invite link. Survives a host migration. */
@@ -960,6 +989,15 @@ class NetworkManager {
     if (!this.socket) return;
     // What the player typed is the room code, which may no longer be the id
     // of whoever is actually hosting.
+    // Same for joining: whatever we were last in has nothing to do with the
+    // room we are about to enter, and the host's WELCOME only overwrites part
+    // of it.
+    const joiningElsewhere = useGameStore.getState().roomCode !== hostId;
+    if (joiningElsewhere) {
+        useGameStore.getState().resetForNewRoom();
+        this.resetHostState();
+    }
+
     this.roomId = hostId;
     useGameStore.getState().setRoomCode(hostId);
     this.socket.emit('join_game', { hostId, playerName });
@@ -980,6 +1018,10 @@ class NetworkManager {
       if (!pending || !this.socket) return;
 
       pending.attempts += 1;
+      // One silent retry is normal. Past that, say something: a sleeping relay
+      // can take ten seconds or more to wake, and silence reads as broken.
+      if (pending.attempts >= 2) useGameStore.getState().setJoinWaiting(true);
+
       if (pending.attempts > NetworkManager.JOIN_ATTEMPTS) {
         this.pendingJoin = null;
         useGameStore.getState().setError(
@@ -996,6 +1038,7 @@ class NetworkManager {
   /** The host answered, so stop asking. */
   private clearPendingJoin() {
     this.pendingJoin = null;
+    useGameStore.getState().setJoinWaiting(false);
     if (this.joinRetry) clearTimeout(this.joinRetry);
     this.joinRetry = null;
   }

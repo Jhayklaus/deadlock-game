@@ -194,6 +194,14 @@ export interface GameState {
    * name. Not persisted — a stale one would hijack the next visit.
    */
   pendingJoinCode: string | null;
+  /**
+   * A join has been sent and the host has not answered yet.
+   *
+   * Usually instant. When the relay has gone to sleep — free hosting tiers
+   * spin down after a quiet spell — the first player waits out a cold start
+   * with nothing on screen to say so, which looks exactly like a broken game.
+   */
+  joinWaiting: boolean;
   players: Record<PlayerId, Player>;
   phase: GamePhase;
   error: string | null;

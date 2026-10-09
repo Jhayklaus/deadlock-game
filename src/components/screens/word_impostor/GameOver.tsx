@@ -6,6 +6,7 @@ import ChatBox from '../../ChatBox';
 import MobileChatDrawer from '../../MobileChatDrawer';
 import { Trophy, Skull, Crown, RotateCcw, BookOpen, Eye, EyeOff } from 'lucide-react';
 import { clsx } from 'clsx';
+import { didIWin } from '../../../lib/winner';
 
 export default function GameOver() {
   const { modeWinnerId, modeWinnerLabel, modeWinnerDescription, players, myId, hostId, allModeRoles } = useGameStore(state => ({
@@ -21,9 +22,10 @@ export default function GameOver() {
   useEffect(() => { soundManager.playVictorySound(); }, []);
 
   const isHost = myId === hostId;
-  const isImpostor = players[myId]?.isAlive === false || modeWinnerId === 'impostor';
-  // Determine if current player won
-  const iWon = (modeWinnerId === 'crewmate' && !isImpostor) || (modeWinnerId === 'impostor' && isImpostor);
+  // Your own role decides this, not whether you survived. The old version read
+  // "dead" as "impostor" and compared against 'crewmate' when the engine sends
+  // 'crewmates', so a winning crewmate was shown DEFEAT.
+  const iWon = didIWin(modeWinnerId, allModeRoles, myId);
 
   const winnerColor = modeWinnerId === 'impostor' ? 'text-red-400' : 'text-violet-300';
   const bgColor = modeWinnerId === 'impostor' ? 'bg-red-500/10' : 'bg-violet-500/10';

@@ -2,7 +2,6 @@ import { useGameStore } from '../../../lib/store';
 import { clsx } from 'clsx';
 import { useVoting } from '../../../hooks/useVoting';
 import ChatBox from '../../ChatBox';
-import LastWillEditor from '../../LastWillEditor';
 import Graveyard from '../../Graveyard';
 import MobileChatDrawer from '../../MobileChatDrawer';
 import { Card } from '../../ui/Card';
@@ -95,7 +94,7 @@ export default function DayPhase() {
               <Badge variant="warning" className="text-[10px] uppercase tracking-widest font-bold font-oswald">Intel Report</Badge>
             </div>
             <p className="text-xl text-amber-100 font-medium leading-relaxed pt-2 font-oswald">
-              {lastNightResult || "No incidents overnight..."}
+              {lastNightResult || "Describe your word without naming it."}
             </p>
           </Card>
 
@@ -167,7 +166,6 @@ export default function DayPhase() {
         </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <LastWillEditor />
           <Graveyard />
         </div>
       </div>

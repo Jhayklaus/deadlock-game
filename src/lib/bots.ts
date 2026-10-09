@@ -1,6 +1,8 @@
 import { Player, Role, PlayerId, NightActionType } from './types';
 import { generateAIResponse } from './ai';
 import { ROLE_DEFINITIONS } from './roleData';
+import { briefingBlock, secretBrief } from './botContext';
+import type { GameModeId } from './types';
 
 const ROLE_GUIDE = ROLE_DEFINITIONS.map(r => 
   `- ${r.name}: ${r.description} (${r.details.join(' ')})`
@@ -179,7 +181,9 @@ export async function getBotDayVote(
   players: Record<PlayerId, Player>,
   chatHistory: string = "",
   modeRole: string = "",
-  allRoles?: Record<PlayerId, Role>
+  allRoles?: Record<PlayerId, Role>,
+  gameMode: string = 'classic_mafia',
+  myPayload?: Record<string, unknown>
 ): Promise<PlayerId | null> {
   const alivePlayers = Object.values(players).filter(p => p.isAlive && p.id !== botId);
   if (alivePlayers.length === 0) return null;
@@ -206,21 +210,23 @@ export async function getBotDayVote(
     roleContext = 'You are a FREQUENCY CIVILIAN. Your number is close to the group. Vote for the player whose clues seem most off-frequency.';
   }
 
+  const secrets = secretBrief(gameMode as GameModeId, modeRole, myPayload);
+
   const prompt = `
-    Name: ${botName}
-    Personality: ${personality}
-    Role: ${modeRole || 'unknown'}
-    Alive Players: ${targetsList}
-    Chat Log:
-    ${chatHistory}
+    ${briefingBlock(gameMode as GameModeId)}
 
-    ${roleContext ? `Role Context: ${roleContext}` : `Role Guide:\n${ROLE_GUIDE}`}
+    YOU: ${botName}, playing as ${modeRole || 'unknown'}. Personality: ${personality}.
+    ${secrets ? `WHAT ONLY YOU KNOW: ${secrets}` : ''}
+    ${roleContext ? `YOUR SITUATION: ${roleContext}` : `ROLES IN THIS GAME:\n${ROLE_GUIDE}`}
 
-    Task: Vote to eliminate a player based on the chat.
-    Output: The exact name of the player to vote for, or "SKIP" to abstain.
-    Rules:
-    1. If you are unsure, you can SKIP.
-    2. Respond with ONLY the name or SKIP.
+    Candidates: ${targetsList}
+
+    CHAT SO FAR:
+    ${chatHistory || '(nobody has said anything)'}
+
+    Decide who to vote out, judging only by what people actually said above and
+    by what you know. Reply with one exact name from the candidate list, or SKIP
+    if nothing points anywhere. Output the name or SKIP and nothing else.
   `;
 
   const response = await generateAIResponse(prompt);
@@ -274,7 +280,11 @@ export async function getBotChat(
   allRoles: Record<PlayerId, Role> = {},
   channel: 'global' | 'mafia' | 'dead' = 'global',
   gameMode: string = 'classic_mafia',
-  modeRoles: Record<PlayerId, string> = {}
+  modeRoles: Record<PlayerId, string> = {},
+  /** The bot's own private payload — the same one a human in its seat holds. */
+  myPayload?: Record<string, unknown>,
+  /** Round number, so bots can refer to what happened earlier. */
+  round = 1
 ): Promise<string | null> {
   const botName = players[botId]?.name || 'Bot';
   const personality = botPersonalities.get(botName) || 'neutral';
@@ -307,6 +317,8 @@ export async function getBotChat(
         roleInstruction = `The game is over. ${effectiveRole === 'undercover' ? "You were UNDERCOVER — your word was different." : effectiveRole === 'blank' ? "You had NO WORD and were winging it." : "You had the COMMON word."} React accordingly.`;
       } else if (gameMode === 'frequency_spy') {
         roleInstruction = `The game is over. ${effectiveRole === 'frequency_spy' ? "You were the FREQUENCY SPY — your number was off from the group." : "You were a FREQUENCY CIVILIAN — you had the group's number."} React accordingly.`;
+      } else if (gameMode === 'deadlock') {
+        roleInstruction = `The game is over. ${effectiveRole === 'station_impostor' ? "You were an IMPOSTOR — you were killing all along." : "You were CREW — you were running tasks."} React accordingly.`;
       }
     } else if (gameMode === 'word_impostor') {
       if (effectiveRole === 'impostor') {
@@ -335,6 +347,17 @@ export async function getBotChat(
         roleInstruction = "You are a FREQUENCY CIVILIAN. Your number is close to the group average. Give clues that hint at your number on the spectrum. Watch for anyone whose clue seems wildly off.";
         terminologyNote = "Use terms like 'frequency', 'spectrum', 'signal', 'number clue'.";
       }
+    } else if (gameMode === 'deadlock') {
+      if (effectiveRole === 'station_impostor') {
+        roleInstruction = "You are an IMPOSTOR on the station. You kill quietly and sabotage. " +
+          "In this meeting, account for where you were without admitting anything, and push " +
+          "suspicion onto someone who cannot prove where they were.";
+        terminologyNote = "rooms, tasks, sabotage, body, meeting, vent";
+      } else {
+        roleInstruction = "You are CREW on the station. Say where you were, which task you were " +
+          "running, and who you saw there. Compare that against what others claim.";
+        terminologyNote = "rooms, tasks, sabotage, body, meeting";
+      }
     } else {
       // Classic mafia
       if (['civilian', 'doctor', 'detective', 'bodyguard', 'vigilante', 'medium', 'mayor'].includes(classicRole)) {
@@ -345,30 +368,32 @@ export async function getBotChat(
     }
   }
 
+  const secrets = secretBrief(gameMode as GameModeId, effectiveRole || classicRole, myPayload);
+
   const prompt = `
-    Name: ${botName}
-    Role: ${effectiveRole || classicRole}
-    Personality: ${personality}
-    Game Mode: ${gameMode}
-    Phase: ${phase}
-    Channel: ${channel}
-    Alive Players: ${alivePlayers}
-    Dead Players: ${deadPlayers || "None"}
-    Chat Log:
-    ${chatHistory}
+    ${briefingBlock(gameMode as GameModeId)}
 
-    ${gameMode === 'classic_mafia' ? `Role Guide (Terminology Source):\n${ROLE_GUIDE}` : `Terminology: ${terminologyNote || 'Use natural game terminology for the mode.'}`}
+    YOU: ${botName}, playing as ${effectiveRole || classicRole}. Personality: ${personality}.
+    ${secrets ? `WHAT ONLY YOU KNOW: ${secrets}` : ''}
 
-    Instruction: ${roleInstruction}
-    Task: Write a short chat message (max 15 words).
-    Rules:
-    1. Sound natural, like a human player.
-    2. Don't reveal you are a bot.
-    3. If the chat is empty, start a conversation.
-    4. React to the latest messages.
-    5. If the phase is 'game_over', discuss who won and react to role reveals.
-    6. Be aware of who is dead. Do not talk to them as if they are alive (unless you are also dead).
-    Output: Just the message text.
+    STATE: round ${round}, phase "${phase}", you are writing in the ${channel} channel.
+    Alive: ${alivePlayers}
+    Dead: ${deadPlayers || 'nobody yet'}
+
+    RECENT CHAT:
+    ${chatHistory || '(nothing said yet — you are opening the discussion)'}
+
+    ${gameMode === 'classic_mafia' ? `ROLES IN THIS GAME:\n${ROLE_GUIDE}` : terminologyNote ? `WORDS TO USE: ${terminologyNote}` : ''}
+
+    YOUR SITUATION: ${roleInstruction}
+
+    Write one short chat message, 15 words or fewer.
+    - Respond to something specific that was actually said, or to the state above.
+    - Never describe anything the game does not have. Re-read WHAT THIS GAME IS NOT.
+    - Never mention being an AI, a bot, a model, or a prompt.
+    - Do not repeat a line already in the chat log.
+    - Do not address dead players as if they were alive, unless you are dead too.
+    Output the message text only, with no quotes and no name prefix.
   `;
 
   const response = await generateAIResponse(prompt);

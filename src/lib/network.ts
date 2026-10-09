@@ -1331,7 +1331,14 @@ class NetworkManager {
             .map(m => `${m.senderName}: ${m.content}`)
             .join('\n');
 
-          const message = await getBotChat(bot.id, store.players, chatHistory, store.phase, store.allRoles || {}, option.channel, this.activeModeId, this.modeRoles);
+          // Hand the bot exactly what a human in its seat holds: its own
+          // secret word, number or task list. Without this a crewmate bot that
+          // "knows the word" was bluffing as blindly as the impostor.
+          const message = await getBotChat(
+              bot.id, store.players, chatHistory, store.phase, store.allRoles || {},
+              option.channel, this.activeModeId, this.modeRoles,
+              this.perPlayerPayloads[bot.id], store.round,
+          );
           
           // Stop typing
           this.broadcastBotTyping(bot.id, false);
@@ -1627,7 +1634,10 @@ class NetworkManager {
               if (!store.players[bot.id]?.isAlive) return;
 
               const modeRole = this.modeRoles[bot.id] || '';
-              const targetId = await getBotDayVote(bot.id, store.players, chatHistory, modeRole, store.allRoles || undefined);
+              const targetId = await getBotDayVote(
+                  bot.id, store.players, chatHistory, modeRole, store.allRoles || undefined,
+                  this.activeModeId, this.perPlayerPayloads[bot.id],
+              );
               this.processVote(bot.id, targetId);
           }, delay);
       });

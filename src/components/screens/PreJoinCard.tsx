@@ -65,7 +65,8 @@ export default function PreJoinCard() {
           syncAddressBar(null);
           setUiScreen('mode_picker');
         }}
-        className="flex items-center gap-2 text-sm text-ink-muted hover:text-ink mb-6 transition-colors"
+        className="-ml-2 mb-4 flex min-h-[44px] items-center gap-2 px-2 text-sm text-ink-muted
+          transition-colors hover:text-ink"
       >
         <ArrowLeft size={16} />
         {invited ? 'Browse other games' : 'Change mode'}

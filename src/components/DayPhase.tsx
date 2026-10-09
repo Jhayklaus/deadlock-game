@@ -43,7 +43,7 @@ export default function DayPhase() {
 
   if (!isAlive) {
     return (
-      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full pb-20 md:pb-0">
+      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full pb-28 lg:pb-0">
         <Card variant="glass" className="text-center p-8 flex flex-col items-center justify-center">
           <Skull size={48} className="text-danger mb-4" />
           <h2 className="font-display text-3xl text-danger mb-3">You are dead</h2>
@@ -113,7 +113,7 @@ export default function DayPhase() {
   }
 
   return (
-    <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20 md:pb-0">
+    <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-6 pb-28 lg:pb-0">
       {/* Main Game Area */}
       <div className="lg:col-span-7 space-y-6">
         <Card variant="glass" className="flex flex-col relative overflow-hidden">

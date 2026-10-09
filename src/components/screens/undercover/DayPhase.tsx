@@ -61,7 +61,7 @@ export default function DayPhase() {
 
   if (!isAlive) {
     return (
-      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full pb-20 md:pb-0">
+      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-6 h-full pb-28 lg:pb-0">
         <Card variant="glass" className="text-center p-8 flex flex-col items-center justify-center border-amber-900/25">
           <Skull size={64} className="text-amber-600 mb-4 animate-pulse" />
           <h2 className="text-4xl font-bold text-amber-400 mb-4 font-oswald uppercase">Burned</h2>
@@ -81,7 +81,7 @@ export default function DayPhase() {
   }
 
   return (
-    <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20 md:pb-0">
+    <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-6 pb-28 lg:pb-0">
       <div className="lg:col-span-7 space-y-6">
         <Card variant="glass" className="flex flex-col relative overflow-hidden border-amber-900/25">
           <div className="flex items-center justify-center gap-3 mb-8">

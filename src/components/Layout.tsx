@@ -118,7 +118,8 @@ export default function Layout({ children }: LayoutProps) {
                   window.location.href = '/';
                 }
               }}
-              className="p-2 rounded-xl text-ink-muted hover:text-danger hover:bg-danger/10 transition-colors"
+              className="grid h-11 w-11 place-items-center rounded-xl text-ink-muted
+                transition-colors hover:bg-danger/10 hover:text-danger"
               title="Exit Game"
               aria-label="Exit game"
             >
@@ -160,13 +161,13 @@ export default function Layout({ children }: LayoutProps) {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-20 py-3 text-center text-ink-muted/60 text-[10px] tracking-[0.2em] uppercase bg-base/60 border-t border-edge/40">
+      <footer className="relative z-20 py-3 pb-20 lg:pb-3 text-center text-ink-muted/60 text-[10px] tracking-[0.2em] uppercase bg-base/60 border-t border-edge/40">
         v0.3.0 • Developed by{' '}
         <a
           target="_blank"
           rel="noopener noreferrer"
           href="http://github.com/jhayklaus"
-          className="underline hover:text-accent transition-colors"
+          className="inline-block min-h-[32px] px-1 py-2 underline transition-colors hover:text-accent"
         >
           Jhayklaus
         </a>

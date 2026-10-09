@@ -15,7 +15,7 @@ export default function LobbyRoom() {
   } = useLobbyState();
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-5 animate-in fade-in duration-500 pb-20 md:pb-0">
+    <div className="w-full max-w-7xl mx-auto space-y-5 animate-in fade-in duration-500 pb-28 lg:pb-0">
       <Card variant="glass" className="flex flex-col md:flex-row items-center justify-between gap-5">
         <div className="flex items-center gap-4">
           <div className="p-3 rounded-2xl bg-accent/10 border border-accent/30 text-accent">
